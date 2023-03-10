@@ -1,0 +1,135 @@
+{{template "base" .}}
+{{define "content"}}
+    <div class="container">
+        <div class="p-4 p-md-5 mb-4 rounded text-bg-dark">
+            <div class="row">
+              <div class="col">
+                <h2 class="text-success">HostInfo Domain: {{index .StringMap "domain"}}</h2>
+                  <p>Autonomous System Name: {{index .StringMap "asn"}}</p>
+                  <p>City: {{index .StringMap "city"}}</p>
+                  <p>Country: {{index .StringMap "country"}}</p>
+                  <p>Internet Service Provider: {{index .StringMap "isp"}}</p>
+                  <p>Organization: {{index .StringMap "org"}}</p>
+                  <p>Region Code: {{index .StringMap "region_code"}}</p>
+                  <p>Open Ports: {{index .StringMap "ports"}}</p>
+                  <p>IPv4 Address: {{index .StringMap "ipv4_address"}}</p>
+                  <p>IPv6 Address: {{index .StringMap "ipv6_address"}}</p>
+              </div>
+            </div>
+        </div>
+    </div>
+    <div class="container">
+      <div class="p-4 p-md-5 mb-4 rounded text-bg-dark">
+        <p><b>Directory Fuzzing in Progress </b></p>
+        <div class="progress" style="height: 40px;">
+          <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" aria-valuenow="75" aria-valuemin="0" aria-valuemax="100" style="width: 100%"></div>
+        </div>
+      </div>
+    </div>
+    <div class="container">
+        <div class="p-4 p-md-5 mb-4 rounded text-bg-dark">
+            <div class="row">
+              <div class="col">
+                <div id="container">
+		            <p>Loading data...</p>
+	              </div>
+                <script>
+                  function fetchUrls() {
+                        const xhr = new XMLHttpRequest();
+                        xhr.open("GET", "/consumer", true);
+                        xhr.onload = function() {
+                          if (this.status === 200) {
+                            // Parse JSON response
+                            const data = JSON.parse(this.responseText);
+
+                            // Get container element
+                            const container = document.getElementById("container");
+                            var bar = document.querySelector(".progress-bar");
+
+                            // Clear loading message and append data
+                            container.innerHTML = "";
+                            data.Urls.forEach(url => {
+                            bar.style.width = url.progress + "%";
+                            bar.innerText = url.progress + "%";
+                              if (url.status === 200 || url.status === 403) { // only display 200 and 403 status codes
+                                const color = url.status === 200 ? "green" : "red";
+                                
+                                container.innerHTML += `<p>${url.path} - <span style="color: ${color};">${url.status}</span></p>`;
+                              }
+                            });
+                          } else {
+                            console.error("Error fetching data");
+                          }
+                        }
+                        xhr.send();
+                      }
+
+                      // Call fetchUrls() when page is loaded
+                      window.onload = fetchUrls;
+                      setInterval(fetchUrls, 5000);
+                </script>
+              </div>
+            </div>
+        </div>
+    </div>
+  {{if index .Data "mx"}}
+    <div class="container">
+      <div class="p-4 p-md-5 mb-4 rounded text-bg-dark">
+        <div class="row">
+          <div class="col">
+               <h2 class="text-success"> MX Records</h2>
+               <p>{{range $index, $element := index .Data "mx"}}
+               <p><b>Host:</b> {{$index}} <b>Precedence:</b> {{$element}}</p>
+               {{end}}
+            </p>
+          </div>  
+        </div>
+      </div>
+   </div>
+  {{end}}
+  {{if or (index .StringMap "banner_mysql") (index .StringMap "banner_ssh") (index .StringMap "banner_ftp") (index .StringMap "banner_smtp") (index .StringMap "banner_pop") (index .StringMap "banner_irc")}}
+    <div class="container">
+      <div class="p-4 p-md-5 mb-4 rounded text-bg-dark">
+        <div class="row">
+          <div class="col">
+               <h2 class="text-success"> Grabbed Banners </h2>
+               {{if index .StringMap "banner_mysql"}}
+                   <p>Mysql banner: {{index .StringMap "banner_mysql"}}</p>
+               {{end}}
+               {{if index .StringMap "banner_ftp"}}
+                   <p>FTP banner: {{index .StringMap "banner_ftp"}}</p>
+               {{end}}
+               {{if index .StringMap "banner_ssh"}}
+                   <p>SSH banner: {{index .StringMap "banner_ssh"}}</p>
+               {{end}}
+               {{if index .StringMap "banner_smtp"}}
+                   <p>SMTP banner: {{index .StringMap "banner_smtp"}}</p>
+               {{end}}
+               {{if index .StringMap "banner_pop"}}
+                   <p>POP banner: {{index .StringMap "banner_pop"}}</p>
+               {{end}}
+               {{if index .StringMap "banner_irc"}}
+                   <p>IRC banner: {{index .StringMap "banner_irc"}}</p>
+               {{end}}
+            </p>
+          </div>  
+        </div>
+      </div>
+   </div>
+  {{end}}
+  {{if index .HeadersMap "headers"}}
+    <div class="container">
+      <div class="p-4 p-md-5 mb-4 rounded text-bg-dark">
+        <div class="row">
+          <div class="col">
+            <h2 class="text-success">Headers</h2>
+            <p>{{range $name, $header := index .HeadersMap "headers"}}
+            <p class="text-break"><b>{{$name}}:</b> {{$header}}</p>
+            {{end}}
+            </p>
+          </div>  
+        </div>
+      </div>
+    </div>
+  {{end}}
+{{end}}
