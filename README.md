@@ -1,5 +1,5 @@
-[![go build](https://github.com/CyberRoute/bruter/actions/workflows/go.yml/badge.svg)](https://github.com/CyberRoute/bruter/actions/workflows/go.yml)
-[![golangci-lint](https://github.com/CyberRoute/bruter/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/CyberRoute/bruter/actions/workflows/golangci-lint.yml)
+[![go build](https://github.com/CyberRoute/bruter/actions/workflows/go.yml/badge.svg?branch=main)](https://github.com/CyberRoute/bruter/actions/workflows/go.yml)
+[![golangci-lint](https://github.com/CyberRoute/bruter/actions/workflows/golangci-lint.yml/badge.svg?branch=main)](https://github.com/CyberRoute/bruter/actions/workflows/golangci-lint.yml)
 
 
 # Bruter
