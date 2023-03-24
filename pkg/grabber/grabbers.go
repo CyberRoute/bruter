@@ -30,7 +30,9 @@ func GrabMysqlBanner(ip_address string, ports []int) (string, error) {
 			service_banner := string(buf[:read])
 			match := re.FindStringSubmatch(service_banner)
 
-			return match[1], nil
+			if len(match) > 0 {
+				return match[1], nil
+			}
 		}
 	}
 	return "", nil

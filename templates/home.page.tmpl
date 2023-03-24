@@ -19,6 +19,21 @@
         </div>
     </div>
     <div class="container">
+		<div class="row">
+			<div class="col">
+				<div id="map"></div>
+			</div>
+		</div>
+	</div>
+	<!-- jQuery -->
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+	<!-- Leaflet JavaScript -->
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/leaflet.js"></script>
+	<script>
+		var ipAddress = {{index .StringMap "ipv4_address"}};
+		getLocation(ipAddress);
+	</script>
+    <div class="container">
       <div class="p-4 p-md-5 mb-4 rounded text-bg-dark">
         <p><b>Directory Fuzzing in Progress </b></p>
         <div class="progress" style="height: 40px;">
@@ -33,41 +48,7 @@
                 <div id="container">
 		            <p>Loading data...</p>
 	              </div>
-                <script>
-                  function fetchUrls() {
-                        const xhr = new XMLHttpRequest();
-                        xhr.open("GET", "/consumer", true);
-                        xhr.onload = function() {
-                          if (this.status === 200) {
-                            // Parse JSON response
-                            const data = JSON.parse(this.responseText);
-
-                            // Get container element
-                            const container = document.getElementById("container");
-                            var bar = document.querySelector(".progress-bar");
-
-                            // Clear loading message and append data
-                            container.innerHTML = "";
-                            data.Urls.forEach(url => {
-                            bar.style.width = url.progress + "%";
-                            bar.innerText = url.progress + "%";
-                              if (url.status === 200 || url.status === 403) { // only display 200 and 403 status codes
-                                const color = url.status === 200 ? "green" : "red";
-                                
-                                container.innerHTML += `<p>${url.path} - <span style="color: ${color};">${url.status}</span></p>`;
-                              }
-                            });
-                          } else {
-                            console.error("Error fetching data");
-                          }
-                        }
-                        xhr.send();
-                      }
-
-                      // Call fetchUrls() when page is loaded
-                      window.onload = fetchUrls;
-                      setInterval(fetchUrls, 5000);
-                </script>
+                <script type="text/javascript" src="/static/js/fetchurls.js">fetchurls();</script>
               </div>
             </div>
         </div>
