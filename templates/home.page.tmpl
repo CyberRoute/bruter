@@ -1,30 +1,41 @@
 {{template "base" .}}
+
 {{define "content"}}
     <div class="container">
-        <div class="p-4 p-md-5 mb-4 rounded text-bg-dark">
-            <div class="row">
-              <div class="col">
-                <h2 class="text-success">HostInfo Domain: {{index .StringMap "domain"}}</h2>
-                  <p>Autonomous System Name: {{index .StringMap "asn"}}</p>
-                  <p>City: {{index .StringMap "city"}}</p>
-                  <p>Country: {{index .StringMap "country"}}</p>
-                  <p>Internet Service Provider: {{index .StringMap "isp"}}</p>
-                  <p>Organization: {{index .StringMap "org"}}</p>
-                  <p>Region Code: {{index .StringMap "region_code"}}</p>
-                  <p>Open Ports: {{index .StringMap "ports"}}</p>
-                  <p>IPv4 Address: {{index .StringMap "ipv4_address"}}</p>
-                  <p>IPv6 Address: {{index .StringMap "ipv6_address"}}</p>
-              </div>
+        <div class="row">
+            <div class="col-md-6">
+                <div class="p-4 p-md-5 mb-4 rounded bg-dark text-white">
+                    <h2 class="text-success"><i class="fas fa-globe"></i> Host Information</h2>
+                    <ul class="list-unstyled">
+                        <li><i class="fas fa-globe"></i> Domain: {{index .StringMap "domain"}}</li>
+                        <li><i class="fas fa-flag"></i> Country: {{index .StringMap "country"}}</li>
+                        <li><i class="fas fa-city"></i> City: {{index .StringMap "city"}}</li>
+                        <li><i class="fas fa-building"></i> Organization: {{index .StringMap "org"}}</li>
+                        <li><i class="fas fa-network-wired"></i> Autonomous System Name: {{index .StringMap "asn"}}</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="p-4 p-md-5 mb-4 rounded bg-dark text-white">
+                    <h2 class="text-success"><i class="fas fa-network-wired"></i> Network Information</h2>
+                    <ul class="list-unstyled">
+                        <li><i class="fas fa-globe"></i> Internet Service Provider: {{index .StringMap "isp"}}</li>
+                        <li><i class="fas fa-map-marker-alt"></i> Region Code: {{index .StringMap "region_code"}}</li>
+                        <li><i class="fas fa-network-wired"></i> Open Ports: {{index .StringMap "ports"}}</li>
+                        <li><i class="fas fa-network-wired"></i> IPv4 Address: {{index .StringMap "ipv4_address"}}</li>
+                        <li><i class="fas fa-network-wired"></i> IPv6 Address: {{index .StringMap "ipv6_address"}}</li>
+                    </ul>
+                </div>
             </div>
         </div>
     </div>
     <div class="container">
-		<div class="row">
-			<div class="col">
-				<div id="map"></div>
-			</div>
-		</div>
-	</div>
+        <div class="row">
+            <div class="col-md-12">
+                <div id="map" style="height: 500px; margin-top: 20px;"></div>
+            </div>
+        </div>
+    </div>
 	<!-- jQuery -->
 	<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
 	<!-- Leaflet JavaScript -->
@@ -33,26 +44,22 @@
 		var ipAddress = {{index .StringMap "ipv4_address"}};
 		getLocation(ipAddress);
 	</script>
-    <div class="container">
-      <div class="p-4 p-md-5 mb-4 rounded text-bg-dark">
-        <p><b>Directory Fuzzing in Progress </b></p>
-        <div class="progress" style="height: 40px;">
-          <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" aria-valuenow="75" aria-valuemin="0" aria-valuemax="100" style="width: 0%"></div>
+  <div class="container" style="margin-top: 20px;">
+    <div class="p-4 p-md-5 mb-4 rounded text-bg-dark">
+      <p><b>Directory Fuzzing in Progress </b></p>
+      <div class="row">
+        <div class="col">
+          <div class="progress" style="height: 20px;">
+            <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" aria-valuenow="75" aria-valuemin="0" aria-valuemax="100" style="width: 0%"></div>
+          </div>
+          <script type="text/javascript" src="/static/js/fetchurls.js">fetchurls();</script>
+        </div>
+        <div id="container" style="margin-top: 20px;">
+            <p>Loading data...</p>
         </div>
       </div>
     </div>
-    <div class="container">
-        <div class="p-4 p-md-5 mb-4 rounded text-bg-dark">
-            <div class="row">
-              <div class="col">
-                <div id="container">
-		            <p>Loading data...</p>
-	              </div>
-                <script type="text/javascript" src="/static/js/fetchurls.js">fetchurls();</script>
-              </div>
-            </div>
-        </div>
-    </div>
+  </div>
   {{if index .Data "mx"}}
     <div class="container">
       <div class="p-4 p-md-5 mb-4 rounded text-bg-dark">
