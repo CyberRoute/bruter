@@ -109,7 +109,7 @@ func main() {
 	for index, payload := range list {
 		index += shift
 		progress := 100 * float32(index) / float32(total)
-		go fuzzer.Auth(client, *Domain, payload, progress, doneThread, *Verbose)
+		go fuzzer.Auth(client, &app.Mu, *Domain, payload, progress, doneThread, *Verbose)
 
 		activeThread++
 		if activeThread >= maxThread {

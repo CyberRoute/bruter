@@ -31,9 +31,8 @@ func checkError(err error) {
 	}
 }
 
-func Auth(client *http.Client, domain, path string, progress float32, doneChan chan bool, verbose bool) {
+func Auth(client *http.Client, Mu *sync.Mutex, domain, path string, progress float32, doneChan chan bool, verbose bool) {
 	defer func() { doneChan <- true }()
-
 	urjoin, err := UrlJoin("http://"+domain, path)
 	if err != nil {
 		fmt.Println(err)
@@ -49,26 +48,23 @@ func Auth(client *http.Client, domain, path string, progress float32, doneChan c
 	err = json.NewEncoder(payloadBuf).Encode(payload)
 	checkError(err)
 	if resp.StatusCode == 200 || resp.StatusCode == 403 && urjoin != "" {
-		dfileHandler(domain, urjoin, float64(resp.StatusCode), progress)
+		dfileHandler(Mu, domain, urjoin, float64(resp.StatusCode), progress)
 		if verbose {
 			log.Info().Msg(fmt.Sprintf("%s => %s", urjoin, resp.Status))
 		}
 
 	} else {
-		dfileHandler(domain, urjoin, float64(resp.StatusCode), progress)
+		dfileHandler(Mu, domain, urjoin, float64(resp.StatusCode), progress)
 		if verbose {
 			log.Info().Msg(fmt.Sprintf("%s => %s", urjoin, resp.Status))
 		}
 	}
 }
 
-var mu sync.Mutex
+func dfileHandler(Mu *sync.Mutex, domain, path string, status float64, progress float32) {
 
-func dfileHandler(domain, path string, status float64, progress float32) {
-
-	mu.Lock()
-	defer mu.Unlock()
-
+	Mu.Lock()
+	defer Mu.Unlock()
 	newUrl := &models.Url{}
 
 	newUrl.Path = path

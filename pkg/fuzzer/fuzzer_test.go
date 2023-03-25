@@ -1,12 +1,14 @@
 package fuzzer_test
 
 import (
-	"github.com/CyberRoute/bruter/pkg/fuzzer"
 	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
+
+	"github.com/CyberRoute/bruter/pkg/fuzzer"
 )
 
 func TestUrlJoin(t *testing.T) {
@@ -57,7 +59,7 @@ func TestAuth(t *testing.T) {
 
 	client := &http.Client{}
 
-	go fuzzer.Auth(client, domain, path, progress, doneChan, true)
+	go fuzzer.Auth(client, &sync.Mutex{}, domain, path, progress, doneChan, true)
 
 	// Wait for the function to finish executing
 	<-doneChan
@@ -74,7 +76,7 @@ func TestAuth(t *testing.T) {
 	domain = testServer.URL[7:] // Remove the "http://" prefix
 	path = "/"
 
-	go fuzzer.Auth(client, domain, path, progress, doneChan, true)
+	go fuzzer.Auth(client, &sync.Mutex{}, domain, path, progress, doneChan, true)
 
 	// Wait for the function to finish executing
 	<-doneChan
@@ -91,7 +93,7 @@ func TestAuth(t *testing.T) {
 	domain = testServer.URL[7:] // Remove the "http://" prefix
 	path = "/"
 
-	go fuzzer.Auth(client, domain, path, progress, doneChan, true)
+	go fuzzer.Auth(client, &sync.Mutex{}, domain, path, progress, doneChan, true)
 
 	// Wait for the function to finish executing
 	<-doneChan

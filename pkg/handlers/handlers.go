@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"sync"
 
 	"github.com/CyberRoute/bruter/pkg/config"
 	"github.com/CyberRoute/bruter/pkg/grabber"
@@ -96,21 +95,26 @@ func (m *Repository) Home(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-var mu sync.Mutex
-
 func (m *Repository) Consumer(w http.ResponseWriter, r *http.Request) {
-	mu.Lock()
-	defer mu.Unlock()
+	// acquire lock
+	m.App.Mu.Lock()
+	defer m.App.Mu.Unlock()
+
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
-	file, err := os.OpenFile(m.App.Domain+".json", os.O_RDWR, 0644)
+	session_file := m.App.Domain + ".json"
+	file, err := os.OpenFile(session_file, os.O_RDWR, 0644)
 	checkError(err)
 	defer file.Close()
+
 	b, err := io.ReadAll(file)
 	checkError(err)
 	var allUrls models.AllUrls
-	err = json.Unmarshal(b, &allUrls.Urls)
-	checkError(err)
+	if len(b) > 0 {
+		err = json.Unmarshal(b, &allUrls.Urls)
+		checkError(err)
+	}
+
 	err = json.NewEncoder(w).Encode(allUrls)
 	checkError(err)
 }
