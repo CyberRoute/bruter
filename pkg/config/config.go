@@ -3,6 +3,7 @@ package config
 import (
 	"html/template"
 	"log"
+	"sync"
 
 	"github.com/alexedwards/scs/v2"
 )
@@ -16,4 +17,5 @@ type AppConfig struct {
 	Session       *scs.SessionManager
 	Domain        string
 	ShodanAPIKey  string
+	Mu            sync.Mutex
 }
