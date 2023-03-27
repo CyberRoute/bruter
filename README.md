@@ -24,6 +24,14 @@ What does it do?
   -verbose
     	Verbosity
 ```
+
+# Running in Docker
+```
+docker build -t bruter .
+docker run --rm -it -p 8080:8080 bruter -domain example.com -shodan [shodanapikey] -verbose
+```
+
+
 # Example
     go run cmd/bruter/* -domain example.com -shodan [SHODANTOKEN] -verbose
     12:41PM INF Scanning IP 93.184.216.34 OK
