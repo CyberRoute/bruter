@@ -64,7 +64,8 @@ func (m *Repository) Home(w http.ResponseWriter, r *http.Request) {
 	stringMap["org"] = host.Org
 	stringMap["region_code"] = host.RegionCode
 	stringMap["ports"] = strings.Trim(strings.Join(strings.Fields(fmt.Sprint(host.Ports)), ",\n"), "[]")
-	mx_records, _ := network.FindMX(m.App.Domain)
+	mx_records, err := network.FindMX(m.App.Domain)
+	checkError(err)
 	uint16Map["mx"] = mx_records
 	info, err := shodan.Head("http://" + m.App.Domain)
 	checkError(err)
