@@ -81,7 +81,7 @@ func main() {
 	}
 
 	go func() {
-		log.Info().Msg(fmt.Sprintf("UI running on http://%s%s/\n\n", *Address, portNumber))
+		log.Info().Msg(fmt.Sprintf("UI running on http://%s%s/", *Address, portNumber))
 		if err := srv.ListenAndServe(); err != nil {
 			panic(err)
 		}
