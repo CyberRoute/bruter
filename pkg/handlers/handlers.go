@@ -89,7 +89,7 @@ func (m *Repository) Home(w http.ResponseWriter, r *http.Request) {
 	stringMap["banner_pop"] = pop
 	stringMap["banner_irc"] = irc
 
-	render.RenderTemplate(w, "home.page.tmpl", &models.TemplateData{
+	render.RenderTemplate(w, "home.page.html", &models.TemplateData{
 		StringMap:  stringMap,
 		Data:       uint16Map,
 		HeadersMap: headersMap,

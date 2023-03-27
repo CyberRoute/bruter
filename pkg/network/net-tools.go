@@ -22,16 +22,16 @@ func ResolveByNameipv6(domain string) (string, error) {
 }
 
 func FindMX(domain string) (map[string]uint16, error) {
-
 	mx_records := make(map[string]uint16)
-
 	mxRecords, err := net.LookupMX(domain)
 	if err != nil {
-		return nil, fmt.Errorf("failed to retrive mx records: %v", err)
+		return nil, fmt.Errorf("failed to retrieve mx records: %v", err)
+	}
+	if len(mxRecords) <= 1 {
+		return nil, fmt.Errorf("no MX records found for domain %s", domain)
 	}
 	for _, mxRecord := range mxRecords {
 		mx_records[mxRecord.Host] = mxRecord.Pref
 	}
 	return mx_records, nil
-
 }
