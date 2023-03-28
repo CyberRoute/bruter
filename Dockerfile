@@ -1,7 +1,5 @@
 FROM golang:alpine as build-stage
 
-RUN apk --no-cache add ca-certificates
-
 WORKDIR /go/src/github.com/CyberRoute/bruter
 
 COPY . .
@@ -14,6 +12,7 @@ COPY --from=build-stage /bruter /bruter
 
 ADD pkg/fuzzer/apache-list pkg/fuzzer/apache-list
 ADD templates/ templates/
+ADD static/ static/
 
 EXPOSE 8080
 
