@@ -1,31 +1,37 @@
 package main
 
 import (
-	"crypto/tls"
 	"flag"
 	"fmt"
+	"net/http"
+	"os"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/CyberRoute/bruter/pkg/config"
 	"github.com/CyberRoute/bruter/pkg/fuzzer"
 	"github.com/CyberRoute/bruter/pkg/handlers"
 	"github.com/CyberRoute/bruter/pkg/network"
 	"github.com/CyberRoute/bruter/pkg/render"
 	"github.com/alexedwards/scs/v2"
+	"github.com/evilsocket/islazy/async"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"net/http"
-	"os"
-	"strings"
-	"time"
 )
+
+type workerContext struct {
+	Mu       *sync.Mutex
+	Domain   string
+	Path     string
+	Progress float32
+	Verbose  bool
+}
 
 const portNumber = ":8080"
 
 var app config.AppConfig
 var session *scs.SessionManager
-
-var doneThread = make(chan bool)
-var activeThread = 0
-var maxThread = 20
 
 var (
 	Domain  = flag.String("domain", "", "domain to scan")
@@ -102,26 +108,26 @@ func main() {
 	list := strings.Split(string(buffer[:EOB]), "\n")
 	total := len(list)
 	shift := 1
-	customTransport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-	client := &http.Client{Transport: customTransport}
+
+	queue := async.NewQueue(0, func(arg async.Job) {
+		ctx := arg.(*workerContext)
+		fuzzer.Auth(ctx.Mu, ctx.Domain, ctx.Path, ctx.Progress, ctx.Verbose)
+	})
+
 	for index, payload := range list {
 		index += shift
 		progress := 100 * float32(index) / float32(total)
-		go fuzzer.Auth(client, &app.Mu, *Domain, payload, progress, doneThread, *Verbose)
-
-		activeThread++
-		if activeThread >= maxThread {
-			<-doneThread
-			activeThread -= 1
-		}
+		queue.Add(async.Job(&workerContext{
+			Mu:       &app.Mu,
+			Domain:   *Domain,
+			Path:     payload,
+			Progress: progress,
+			Verbose:  *Verbose,
+		}))
 	}
 
-	for activeThread > 0 {
-		<-doneThread
-		activeThread -= 1
-	}
+	queue.WaitDone()
+
 	fmt.Println("\nAll tasks completed, press Ctrl-C to quit.")
 	select {}
 }
