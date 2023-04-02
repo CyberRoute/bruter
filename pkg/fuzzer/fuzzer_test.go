@@ -28,7 +28,6 @@ func TestUrlJoin(t *testing.T) {
 }
 
 func TestAuth(t *testing.T) {
-	doneChan := make(chan bool)
 	// create a listener with the desired port.
 	l, err := net.Listen("tcp", "127.0.0.1:8080")
 	if err != nil {
@@ -57,12 +56,7 @@ func TestAuth(t *testing.T) {
 	domain := testServer.URL[7:] // Remove the "http://" prefix
 	path := "/"
 
-	client := &http.Client{}
-
-	go fuzzer.Auth(client, &sync.Mutex{}, domain, path, progress, doneChan, true)
-
-	// Wait for the function to finish executing
-	<-doneChan
+	go fuzzer.Auth(&sync.Mutex{}, domain, path, progress, true)
 
 	// Test 3 - 403 status code
 	progress = float32(0.5)
@@ -76,10 +70,7 @@ func TestAuth(t *testing.T) {
 	domain = testServer.URL[7:] // Remove the "http://" prefix
 	path = "/"
 
-	go fuzzer.Auth(client, &sync.Mutex{}, domain, path, progress, doneChan, true)
-
-	// Wait for the function to finish executing
-	<-doneChan
+	go fuzzer.Auth(&sync.Mutex{}, domain, path, progress, true)
 
 	// Test 4 - non-200, non-403 status code
 	progress = float32(0.5)
@@ -93,9 +84,7 @@ func TestAuth(t *testing.T) {
 	domain = testServer.URL[7:] // Remove the "http://" prefix
 	path = "/"
 
-	go fuzzer.Auth(client, &sync.Mutex{}, domain, path, progress, doneChan, true)
+	go fuzzer.Auth(&sync.Mutex{}, domain, path, progress, true)
 
-	// Wait for the function to finish executing
-	<-doneChan
 	ts.Close()
 }

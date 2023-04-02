@@ -2,15 +2,17 @@ package fuzzer
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"github.com/CyberRoute/bruter/pkg/models"
-	"github.com/rs/zerolog/log"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"sync"
+
+	"github.com/CyberRoute/bruter/pkg/models"
+	"github.com/rs/zerolog/log"
 )
 
 func UrlJoin(uri, urj string) (string, error) {
@@ -31,18 +33,29 @@ func checkError(err error) {
 	}
 }
 
-func Auth(client *http.Client, Mu *sync.Mutex, domain, path string, progress float32, doneChan chan bool, verbose bool) {
-	defer func() { doneChan <- true }()
+func Auth(Mu *sync.Mutex, domain, path string, progress float32, verbose bool) {
 	urjoin, err := UrlJoin("http://"+domain, path)
 	if err != nil {
 		fmt.Println(err)
+		return
 	}
 	get, err := http.NewRequest("GET", urjoin, nil)
 	if err != nil {
 		log.Error().Err(err).Msg("")
+		return
 	}
+
+	customTransport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := &http.Client{Transport: customTransport}
+
 	resp, err := client.Do(get)
-	checkError(err)
+	if err != nil {
+		log.Error().Err(err).Msg("")
+		return
+	}
+
 	payload := &models.Url{Path: urjoin, Progress: progress, Status: float64(resp.StatusCode)}
 	payloadBuf := new(bytes.Buffer)
 	err = json.NewEncoder(payloadBuf).Encode(payload)
