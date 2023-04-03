@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,11 +9,8 @@ import (
 	"strings"
 
 	"github.com/CyberRoute/bruter/pkg/config"
-	"github.com/CyberRoute/bruter/pkg/grabber"
 	"github.com/CyberRoute/bruter/pkg/models"
-	"github.com/CyberRoute/bruter/pkg/network"
 	"github.com/CyberRoute/bruter/pkg/render"
-	"github.com/CyberRoute/bruter/pkg/shodan"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -39,61 +35,36 @@ func NewHandlers(r *Repository) {
 	Repo = r
 }
 
-func (m *Repository) Home(w http.ResponseWriter, r *http.Request) {
-	stringMap := make(map[string]string)
-	uint16Map := make(map[string]interface{})
-	headersMap := make(map[string]interface{})
-	IPv4, err := network.ResolveByName(m.App.Domain)
-	checkError(err)
-	IPv6, err := network.ResolveByNameipv6(m.App.Domain)
-	checkError(err)
-	customTransport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-	client := &http.Client{Transport: customTransport}
-	shodan := shodan.NewClient(client, IPv4, m.App.ShodanAPIKey)
-	host, err := shodan.HostInfo()
-	checkError(err)
-	stringMap["ipv4_address"] = IPv4
-	stringMap["ipv6_address"] = IPv6
-	stringMap["domain"] = m.App.Domain
-	stringMap["asn"] = host.Asn
-	stringMap["city"] = host.City
-	stringMap["country"] = host.CountryName
-	stringMap["isp"] = host.Isp
-	stringMap["org"] = host.Org
-	stringMap["region_code"] = host.RegionCode
-	stringMap["ports"] = strings.Trim(strings.Join(strings.Fields(fmt.Sprint(host.Ports)), ",\n"), "[]")
-	mx_records, err := network.FindMX(m.App.Domain)
-	checkError(err)
-	uint16Map["mx"] = mx_records
-	info, err := shodan.Head("http://" + m.App.Domain)
-	checkError(err)
-	headersMap["headers"] = info
-	mysql, err := grabber.GrabMysqlBanner(m.App.Domain, host.Ports)
-	checkError(err)
-	ssh, err := grabber.GrabSSHBanner(m.App.Domain, host.Ports)
-	checkError(err)
-	ftp, err := grabber.GrabFTPBanner(m.App.Domain, host.Ports)
-	checkError(err)
-	smtp, err := grabber.GrabSMTPBanner(m.App.Domain, host.Ports)
-	checkError(err)
-	pop, err := grabber.GrabPOPBanner(m.App.Domain, host.Ports)
-	checkError(err)
-	irc, err := grabber.GrabIRCBanner(m.App.Domain, host.Ports)
-	checkError(err)
-	stringMap["banner_ftp"] = ftp
-	stringMap["banner_ssh"] = ssh
-	stringMap["banner_mysql"] = mysql
-	stringMap["banner_smtp"] = smtp
-	stringMap["banner_pop"] = pop
-	stringMap["banner_irc"] = irc
+func (m *Repository) Home(args models.HomeArgs) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		stringMap := make(map[string]string)
+		uint16Map := make(map[string]interface{})
+		headersMap := make(map[string]interface{})
+		stringMap["ipv4_address"] = args.Ipv4
+		stringMap["ipv6_address"] = args.Ipv6
+		stringMap["domain"] = m.App.Domain
+		stringMap["asn"] = args.Host.Asn
+		stringMap["city"] = args.Host.City
+		stringMap["country"] = args.Host.CountryName
+		stringMap["isp"] = args.Host.Isp
+		stringMap["org"] = args.Host.Org
+		stringMap["region_code"] = args.Host.RegionCode
+		stringMap["ports"] = strings.Trim(strings.Join(strings.Fields(fmt.Sprint(args.Host.Ports)), ",\n"), "[]")
+		uint16Map["mx"] = args.Mx
+		headersMap["headers"] = args.Headers
+		stringMap["banner_ftp"] = args.Ftp
+		stringMap["banner_ssh"] = args.Ssh
+		stringMap["banner_mysql"] = args.Mysql
+		stringMap["banner_smtp"] = args.Smtp
+		stringMap["banner_pop"] = args.Pop
+		stringMap["banner_irc"] = args.Irc
 
-	render.RenderTemplate(w, "home.page.html", &models.TemplateData{
-		StringMap:  stringMap,
-		Data:       uint16Map,
-		HeadersMap: headersMap,
-	})
+		render.RenderTemplate(w, "home.page.html", &models.TemplateData{
+			StringMap:  stringMap,
+			Data:       uint16Map,
+			HeadersMap: headersMap,
+		})
+	}
 }
 
 func (m *Repository) Consumer(w http.ResponseWriter, r *http.Request) {
