@@ -16,7 +16,7 @@ func ResolveByName(domain string) (string, error) {
 func ResolveByNameipv6(domain string) (string, error) {
 	ip6address, err := net.ResolveIPAddr("ip6", domain)
 	if err != nil {
-		return "", fmt.Errorf("failed to resolve IPv6 address: %v", err)
+		return "not found", fmt.Errorf("failed to resolve IPv6 address: %v", err)
 	}
 	return ip6address.String(), nil
 }
