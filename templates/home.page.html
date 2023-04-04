@@ -1,123 +1,135 @@
 {{template "base" .}}
+{{- define "content" -}}
+<div class="container-fluid">
+  <div class="row">
+    <div class="col-md-6">
+      <!-- Host Information -->
+      <div class="card bg-dark text-white mb-1">
+        <div class="card-header bg-success">
+          <h2><i class="fas fa-globe"></i> Host Information</h2>
+        </div>
+        <div class="card-body">
+          <ul class="list-unstyled">
+            <li><i class="fas fa-globe"></i> Domain: {{index .StringMap "domain"}}</li>
+            <li><i class="fas fa-flag"></i> Country: {{index .StringMap "country"}}</li>
+            <li><i class="fas fa-city"></i> City: {{index .StringMap "city"}}</li>
+            <li><i class="fas fa-building"></i> Organization: {{index .StringMap "org"}}</li>
+            <li><i class="fas fa-network-wired"></i> Autonomous System Name: {{index .StringMap "asn"}}</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <!-- Network Information -->
+      <div class="card bg-dark text-white mb-1">
+        <div class="card-header bg-success">
+          <h2><i class="fas fa-network-wired"></i> Network Information</h2>
+        </div>
+        <div class="card-body">
+          <ul class="list-unstyled">
+            <li><i class="fas fa-globe"></i> Internet Service Provider: {{index .StringMap "isp"}}</li>
+            <li><i class="fas fa-map-marker-alt"></i> Region Code: {{index .StringMap "region_code"}}</li>
+            <li><i class="fas fa-network-wired"></i> Open Ports: {{index .StringMap "ports"}}</li>
+            <li><i class="fas fa-network-wired"></i> IPv4 Address: {{index .StringMap "ipv4_address"}}</li>
+            <li><i class="fas fa-network-wired"></i> IPv6 Address: {{index .StringMap "ipv6_address"}}</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-12">
+      <!-- Map -->
+      <div id="map"></div>
+    </div>
+  </div>
 
-{{define "content"}}
-    <div class="container">
-        <div class="row">
-            <div class="col-md-6">
-                <div class="p-4 p-md-5 mb-4 rounded bg-dark text-white">
-                    <h2 class="text-success"><i class="fas fa-globe"></i> Host Information</h2>
-                    <ul class="list-unstyled">
-                        <li><i class="fas fa-globe"></i> Domain: {{index .StringMap "domain"}}</li>
-                        <li><i class="fas fa-flag"></i> Country: {{index .StringMap "country"}}</li>
-                        <li><i class="fas fa-city"></i> City: {{index .StringMap "city"}}</li>
-                        <li><i class="fas fa-building"></i> Organization: {{index .StringMap "org"}}</li>
-                        <li><i class="fas fa-network-wired"></i> Autonomous System Name: {{index .StringMap "asn"}}</li>
-                    </ul>
-                </div>
-            </div>
-            <div class="col-md-6">
-                <div class="p-4 p-md-5 mb-4 rounded bg-dark text-white">
-                    <h2 class="text-success"><i class="fas fa-network-wired"></i> Network Information</h2>
-                    <ul class="list-unstyled">
-                        <li><i class="fas fa-globe"></i> Internet Service Provider: {{index .StringMap "isp"}}</li>
-                        <li><i class="fas fa-map-marker-alt"></i> Region Code: {{index .StringMap "region_code"}}</li>
-                        <li><i class="fas fa-network-wired"></i> Open Ports: {{index .StringMap "ports"}}</li>
-                        <li><i class="fas fa-network-wired"></i> IPv4 Address: {{index .StringMap "ipv4_address"}}</li>
-                        <li><i class="fas fa-network-wired"></i> IPv6 Address: {{index .StringMap "ipv6_address"}}</li>
-                    </ul>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="container">
-        <div class="row">
-            <div class="col-md-12">
-                <div id="map" style="height: 500px; margin-top: 20px;"></div>
-            </div>
-        </div>
-    </div>
-	<!-- jQuery -->
-	<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
-	<!-- Leaflet JavaScript -->
-	<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/leaflet.js"></script>
-	<script>
-		var ipAddress = {{index .StringMap "ipv4_address"}};
-		getLocation(ipAddress);
-    </script>
-      <div class="container" style="margin-top: 20px;">
-        <div class="p-4 p-md-5 mb-4 rounded text-bg-dark">
-          <p><b>Directory Fuzzing in Progress </b></p>
-          <div class="row">
-            <div class="col">
-              <div class="progress" style="height: 20px;">
-                <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" aria-valuenow="75" aria-valuemin="0" aria-valuemax="100" style="width: 0%"></div>
-              </div>
-              <script type="text/javascript" src="/static/js/fetchurls.js">fetchurls();</script>
-            </div>
-            <div id="container" style="margin-top: 20px; height: 400px; overflow-y: scroll; background-color: #000; color: #0F0; font-family: monospace; padding: 10px; font-size: 12px;">
-              <p>Loading data...</p>
-            </div>
-          </div>
+  <!-- jQuery -->
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+
+  <!-- Leaflet JavaScript -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/leaflet.js"></script>
+
+  <script>
+    var ipAddress = {{ index .StringMap "ipv4_address"}};
+    getLocation(ipAddress);
+  </script>
+  <div class="card bg-dark text-light mb-4">
+    <div class="card-body">
+      <div class="card-header bg-success">
+        <h5><i class="bi bi-search"></i> Directory Fuzzing in Progress</h5>
+      </div>
+      <div class="progress" style="height: 20px;">
+        <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" aria-valuenow="75"
+          aria-valuemin="0" aria-valuemax="100"
+          style="width: 0%; background-color: #3c3b36; border: 1px solid #ac0c0c;"></div>
+      </div>
+      <div class="mt-3">
+        <script type="text/javascript" src="/static/js/fetchurls.js">fetchurls();</script>
+        <div id="container"
+          style="height: 400px; overflow-y: scroll; background-color: #000; color: #0F0; font-family: monospace; font-size: 12px;">
+          <p>Loading data...</p>
         </div>
       </div>
+    </div>
+  </div>
   {{if index .Data "mx"}}
-    <div class="container">
-      <div class="p-4 p-md-5 mb-4 rounded text-bg-dark">
-        <div class="row">
-          <div class="col">
-               <h2 class="text-success"> MX Records</h2>
-               <p>{{range $index, $element := index .Data "mx"}}
-               <p><b>Host:</b> {{$index}} <b>Precedence:</b> {{$element}}</p>
-               {{end}}
-            </p>
-          </div>  
-        </div>
+  <div class="card bg-dark text-light mb-4">
+    <div class="card-body">
+      <div class="card-header bg-success">
+        <h5><i class="bi bi-search"></i> MX Records</h5>
       </div>
-   </div>
+      <p>
+        {{range $index, $element := index .Data "mx"}}
+      <p><b>Host:</b> {{$index}} <b>Precedence:</b> {{$element}}</p>
+      {{end}}
+      </p>
+    </div>
+  </div>
   {{end}}
-  {{if or (index .StringMap "banner_mysql") (index .StringMap "banner_ssh") (index .StringMap "banner_ftp") (index .StringMap "banner_smtp") (index .StringMap "banner_pop") (index .StringMap "banner_irc")}}
-    <div class="container">
-      <div class="p-4 p-md-5 mb-4 rounded text-bg-dark">
-        <div class="row">
-          <div class="col">
-               <h2 class="text-success"> Grabbed Banners </h2>
-               {{if index .StringMap "banner_mysql"}}
-                   <p>Mysql banner: {{index .StringMap "banner_mysql"}}</p>
-               {{end}}
-               {{if index .StringMap "banner_ftp"}}
-                   <p>FTP banner: {{index .StringMap "banner_ftp"}}</p>
-               {{end}}
-               {{if index .StringMap "banner_ssh"}}
-                   <p>SSH banner: {{index .StringMap "banner_ssh"}}</p>
-               {{end}}
-               {{if index .StringMap "banner_smtp"}}
-                   <p>SMTP banner: {{index .StringMap "banner_smtp"}}</p>
-               {{end}}
-               {{if index .StringMap "banner_pop"}}
-                   <p>POP banner: {{index .StringMap "banner_pop"}}</p>
-               {{end}}
-               {{if index .StringMap "banner_irc"}}
-                   <p>IRC banner: {{index .StringMap "banner_irc"}}</p>
-               {{end}}
-            </p>
-          </div>  
-        </div>
+  {{if or (index .StringMap "banner_mysql") (index .StringMap "banner_ftp") (index .StringMap "banner_ssh") (index
+  .StringMap "banner_smtp") (index .StringMap "banner_pop") (index .StringMap "banner_irc")}}
+  <div class="card bg-dark text-light mb-4">
+    <div class="card-body">
+      <div class="card-header bg-success">
+        <h5><i class="bi bi-search"></i> Grabbed Banners</h5>
       </div>
-   </div>
+      <div class="mt-3">
+        {{if index .StringMap "banner_mysql"}}
+        <p><b>Mysql banner:</b> {{index .StringMap "banner_mysql"}}</p>
+        {{end}}
+        {{if index .StringMap "banner_ftp"}}
+        <p><b>FTP banner:</b> {{index .StringMap "banner_ftp"}}</p>
+        {{end}}
+        {{if index .StringMap "banner_ssh"}}
+        <p><b>SSH banner:</b> {{index .StringMap "banner_ssh"}}</p>
+        {{end}}
+        {{if index .StringMap "banner_smtp"}}
+        <p><b>SMTP banner:</b> {{index .StringMap "banner_smtp"}}</p>
+        {{end}}
+        {{if index .StringMap "banner_pop"}}
+        <p><b>POP banner:</b> {{index .StringMap "banner_pop"}}</p>
+        {{end}}
+        {{if index .StringMap "banner_irc"}}
+        <p><b>IRC banner:</b> {{index .StringMap "banner_irc"}}</p>
+        {{end}}
+      </div>
+    </div>
+  </div>
   {{end}}
   {{if index .HeadersMap "headers"}}
-    <div class="container">
-      <div class="p-4 p-md-5 mb-4 rounded text-bg-dark">
-        <div class="row">
-          <div class="col">
-            <h2 class="text-success">Headers</h2>
-            <p>{{range $name, $header := index .HeadersMap "headers"}}
-            <p class="text-break"><b>{{$name}}:</b> {{$header}}</p>
-            {{end}}
-            </p>
-          </div>  
-        </div>
+  <div class="card bg-dark text-light mb-4">
+    <div class="card-body">
+      <div class="card-header bg-success">
+        <h5><i class="bi bi-search"></i> Headers</h5>
+      </div>
+      <div class="mt-3">
+        <p>
+          {{range $name, $header := index .HeadersMap "headers"}}
+        <p class="text-break"><b>{{$name}}:</b> {{$header}}</p>
+        {{end}}
+        </p>
       </div>
     </div>
+  </div>
   {{end}}
-{{end}}
+  {{end}}
+</div>
