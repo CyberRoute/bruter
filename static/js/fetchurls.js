@@ -1,7 +1,7 @@
 function fetchUrls() {
 	const xhr = new XMLHttpRequest();
 	xhr.open("GET", "/consumer", true);
-	xhr.onload = function() {
+	xhr.onload = function () {
 		if (this.status === 200) {
 			// Parse JSON response
 			const data = JSON.parse(this.responseText);
@@ -15,10 +15,8 @@ function fetchUrls() {
 			data.Urls.forEach(url => {
 				bar.style.width = url.progress + "%";
 				bar.innerText = url.progress + "%";
-				if (url.status === 200 || url.status === 403) { // only display 200 and 403 status codes
-					const color = url.status === 200 ? "green" : "red";
-
-					container.innerHTML += `<p>${url.path} - <span style="color: ${color};">${url.status}</span></p>`;
+				if (url.status === 200) { // only display 200 status codes in green
+					container.innerHTML += `<p>${url.path} - <span style="color: green;">${url.status}</span></p>`;
 				}
 			});
 		} else {

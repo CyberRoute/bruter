@@ -60,7 +60,7 @@ func Auth(Mu *sync.Mutex, domain, path string, progress float32, verbose bool) {
 	payloadBuf := new(bytes.Buffer)
 	err = json.NewEncoder(payloadBuf).Encode(payload)
 	checkError(err)
-	if resp.StatusCode == 200 || resp.StatusCode == 403 && urjoin != "" {
+	if resp.StatusCode == 200 && urjoin != "" {
 		dfileHandler(Mu, domain, urjoin, float64(resp.StatusCode), progress)
 		if verbose {
 			log.Info().Msg(fmt.Sprintf("%s => %s", urjoin, resp.Status))
