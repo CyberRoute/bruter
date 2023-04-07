@@ -1,7 +1,7 @@
 getLocation(ipAddress);
 
 function getLocation(ipAddress) {
-	$.getJSON('https://ipapi.co/' + ipAddress + '/json/', function(data) {
+	$.getJSON('https://ipapi.co/' + ipAddress + '/json/', function (data) {
 		var latitude = data.latitude;
 		var longitude = data.longitude;
 
@@ -16,7 +16,7 @@ function getLocation(ipAddress) {
 		marker.bindPopup("<b>Destination IP Address:</b> " + ipAddress).openPopup();
 
 		// get location of sourceIp
-		$.getJSON('https://ipapi.co/json/', function(data) {
+		$.getJSON('https://ipapi.co/json/', function (data) {
 			var sourceLatitude = data.latitude;
 			var sourceLongitude = data.longitude;
 			var sourceIp = data.ip;
@@ -38,7 +38,7 @@ function getLocation(ipAddress) {
 			}).addTo(map);
 			line.bindPopup("<b>Route:</b> " + sourceIp + " → " + ipAddress).openPopup();
 		});
-	}).fail(function() {
+	}).fail(function () {
 		alert('Invalid IP address.');
 	});
 }
