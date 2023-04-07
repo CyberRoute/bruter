@@ -1,5 +1,3 @@
-getLocation(ipAddress);
-
 function getLocation(ipAddress) {
 	$.getJSON('https://ipapi.co/' + ipAddress + '/json/', function (data) {
 		var latitude = data.latitude;
