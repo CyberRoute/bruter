@@ -29,7 +29,7 @@ func UrlJoin(uri, urj string) (string, error) {
 
 func checkError(err error) {
 	if err != nil {
-		log.Error().Err(err).Msg("")
+		log.Error().Err(err).Msg("FUZZER")
 	}
 }
 
@@ -77,6 +77,7 @@ func Auth(Mu *sync.Mutex, domain, path string, progress float32, verbose bool) {
 func dfileHandler(Mu *sync.Mutex, domain, path string, status float64, progress float32) {
 
 	Mu.Lock()
+
 	defer Mu.Unlock()
 	newUrl := &models.Url{}
 
@@ -90,6 +91,10 @@ func dfileHandler(Mu *sync.Mutex, domain, path string, status float64, progress 
 	file, err := os.OpenFile(session_file, os.O_CREATE|os.O_RDWR, 0644)
 	checkError(err)
 	defer file.Close()
+
+	data, err := GetFileSizeString(session_file, domain)
+	checkError(err)
+	newUrl.Data = data
 
 	//read file and unmarshall json file to slice of urls
 	b, err := io.ReadAll(file)
@@ -113,13 +118,23 @@ func dfileHandler(Mu *sync.Mutex, domain, path string, status float64, progress 
 		allUrls.Urls = append(allUrls.Urls, newUrl)
 		newUserBytes, err := json.MarshalIndent(&allUrls.Urls, "", " ")
 		checkError(err)
-		err = os.WriteFile(session_file, newUserBytes, 0666)
+		err = os.WriteFile(session_file, newUserBytes, 0644)
 		checkError(err)
 	} else {
 		allUrls.Urls = append(allUrls.Urls, newUrl)
 		newUserBytes, err := json.MarshalIndent(&allUrls.Urls, "", " ")
 		checkError(err)
-		err = os.WriteFile(session_file, newUserBytes, 0666)
+		err = os.WriteFile(session_file, newUserBytes, 0644)
 		checkError(err)
 	}
+}
+
+func GetFileSizeString(filePath string, domain string) (string, error) {
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		return "", err
+	}
+
+	fileSize := fileInfo.Size()
+	return fmt.Sprintf("%s.json file: %d bytes", domain, fileSize), nil
 }

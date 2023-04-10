@@ -5,6 +5,7 @@ type Url struct {
 	Path     string  `json:"path"`
 	Status   float64 `json:"status"`
 	Progress float32 `json:"progress"`
+	Data     string  `json:"data"`
 }
 
 type AllUrls struct {
