@@ -55,7 +55,8 @@
   <div class="card bg-dark text-light mb-4">
     <div class="card-body">
       <div class="card-header bg-success">
-        <h5><i class="bi bi-search"></i> Directory Fuzzing in Progress</h5>
+        <h5><i class="bi bi-search"></i> Directory Fuzzing in Progress (<span id="data">{{index .StringMap
+            "domain"}}.json: 0 bytes</span>)</h5>
       </div>
       <div class="progress" style="height: 20px;">
         <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" aria-valuenow="75"
@@ -71,6 +72,7 @@
       </div>
     </div>
   </div>
+
   {{if index .Data "mx"}}
   <div class="card bg-dark text-light mb-4">
     <div class="card-body">
