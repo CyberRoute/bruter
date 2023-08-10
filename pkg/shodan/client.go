@@ -85,6 +85,8 @@ func (c *Client) HostInfo() (Response, error) {
 		return Response{}, fmt.Errorf("not Found")
 	case 500:
 		return Response{}, fmt.Errorf("internal Server Error")
+	case 403:
+		return Response{}, fmt.Errorf("requires membership or higher to access")
 	default:
 		return Response{}, fmt.Errorf("unexpected response status code: %d", resp.StatusCode)
 	}
