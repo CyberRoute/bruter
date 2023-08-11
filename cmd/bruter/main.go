@@ -94,7 +94,7 @@ func main() {
 	}()
 
 	buffer := make([]byte, 500000) // 500K(almost)
-	file, err := os.Open("pkg/fuzzer/apache-list")
+	file, err := os.Open("db/apache-list")
 	if err != nil {
 		log.Fatal().Err(err).Msg("")
 	}
