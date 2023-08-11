@@ -10,7 +10,7 @@ FROM scratch
 
 COPY --from=build-stage /bruter /bruter
 
-ADD pkg/fuzzer/apache-list pkg/fuzzer/apache-list
+ADD db/apache-list db/apache-list
 ADD templates/ templates/
 ADD static/ static/
 
