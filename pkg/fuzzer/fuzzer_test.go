@@ -11,23 +11,7 @@ import (
 	"github.com/CyberRoute/bruter/pkg/fuzzer"
 )
 
-func TestUrlJoin(t *testing.T) {
-	uri := "https://example.com"
-	urj := "/path/to/something"
-
-	expected := "https://example.com/path/to/something"
-
-	result, err := fuzzer.UrlJoin(uri, urj)
-	if err != nil {
-		t.Errorf("urlJoin(%s, %s) returned error: %v", uri, urj, err)
-	}
-
-	if result != expected {
-		t.Errorf("urlJoin(%s, %s) = %s, expected %s", uri, urj, result, expected)
-	}
-}
-
-func TestAuth(t *testing.T) {
+func TestGet(t *testing.T) {
 	// create a listener with the desired port.
 	l, err := net.Listen("tcp", "127.0.0.1:8080")
 	if err != nil {
@@ -56,7 +40,7 @@ func TestAuth(t *testing.T) {
 	domain := testServer.URL[7:] // Remove the "http://" prefix
 	path := "/"
 
-	go fuzzer.Auth(&sync.Mutex{}, domain, path, progress, true)
+	go fuzzer.Get(&sync.Mutex{}, domain, path, progress, true)
 
 	// Test 3 - 403 status code
 	progress = float32(0.5)
@@ -70,7 +54,7 @@ func TestAuth(t *testing.T) {
 	domain = testServer.URL[7:] // Remove the "http://" prefix
 	path = "/"
 
-	go fuzzer.Auth(&sync.Mutex{}, domain, path, progress, true)
+	go fuzzer.Get(&sync.Mutex{}, domain, path, progress, true)
 
 	// Test 4 - non-200, non-403 status code
 	progress = float32(0.5)
@@ -84,7 +68,7 @@ func TestAuth(t *testing.T) {
 	domain = testServer.URL[7:] // Remove the "http://" prefix
 	path = "/"
 
-	go fuzzer.Auth(&sync.Mutex{}, domain, path, progress, true)
+	go fuzzer.Get(&sync.Mutex{}, domain, path, progress, true)
 
 	ts.Close()
 }

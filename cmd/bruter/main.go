@@ -111,7 +111,7 @@ func main() {
 
 	queue := async.NewQueue(0, func(arg async.Job) {
 		ctx := arg.(*workerContext)
-		fuzzer.Auth(ctx.Mu, ctx.Domain, ctx.Path, ctx.Progress, ctx.Verbose)
+		fuzzer.Get(ctx.Mu, ctx.Domain, ctx.Path, ctx.Progress, ctx.Verbose)
 	})
 
 	for index, payload := range list {
