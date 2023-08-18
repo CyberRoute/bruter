@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"sync"
 
@@ -22,8 +23,12 @@ func checkError(err error) {
 
 func Get(Mu *sync.Mutex, domain, path string, progress float32, verbose bool) {
 	urjoin := "http://" + domain + path
+	url, err := url.Parse(urjoin)
+	if err != nil {
+		log.Error().Err(err).Msg("")
+	}
 
-	get, err := http.NewRequest("GET", urjoin, nil)
+	get, err := http.NewRequest("GET", url.String(), nil)
 	if err != nil {
 		log.Error().Err(err).Msg("")
 		return
