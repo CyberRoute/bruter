@@ -117,6 +117,12 @@ func main() {
 
 	for index, payload := range list {
 		index += shift
+
+		// Replace %EXT% with extensions
+		payload = strings.ReplaceAll(payload, "%EXT%", "php")
+		payload = strings.ReplaceAll(payload, "%EXT%", "html")
+		payload = strings.ReplaceAll(payload, "%EXT%", "js")
+
 		progress := 100 * float32(index) / float32(total)
 		queue.Add(async.Job(&workerContext{
 			Mu:       &app.Mu,
