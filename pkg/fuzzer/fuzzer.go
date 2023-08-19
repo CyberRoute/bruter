@@ -22,39 +22,46 @@ func checkError(err error) {
 }
 
 func Get(Mu *sync.Mutex, domain, path string, progress float32, verbose bool) {
-	urjoin := "http://" + domain + path
-	url, err := url.Parse(urjoin)
-	if err != nil {
-		log.Error().Err(err).Msg("")
-	}
+	urjoinHTTP := "http://" + domain + path
+	urjoinHTTPS := "https://" + domain + path
 
-	get, err := http.NewRequest("GET", url.String(), nil)
-	if err != nil {
-		log.Error().Err(err).Msg("")
-		return
-	}
+	urls := []string{urjoinHTTP, urjoinHTTPS}
 
-	client := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
-	}
+	for _, urjoin := range urls {
+		url, err := url.Parse(urjoin)
+		if err != nil {
+			log.Error().Err(err).Msgf("Error parsing URL: %s", urjoin)
+			continue
+		}
 
-	resp, err := client.Do(get)
-	if err != nil {
-		log.Error().Err(err).Msg("")
-		return
-	}
+		get, err := http.NewRequest("GET", url.String(), nil)
+		if err != nil {
+			log.Error().Err(err).Msgf("Error creating request for URL: %s", urjoin)
+			continue
+		}
 
-	statusCode := float64(resp.StatusCode)
-	payload := &models.Url{Path: urjoin, Progress: progress, Status: statusCode}
-	payloadBuf := new(bytes.Buffer)
-	err = json.NewEncoder(payloadBuf).Encode(payload)
-	checkError(err)
+		client := &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			},
+		}
 
-	dfileHandler(Mu, domain, urjoin, statusCode, progress)
-	if verbose {
-		log.Info().Msg(fmt.Sprintf("%s => %s", urjoin, resp.Status))
+		resp, err := client.Do(get)
+		if err != nil {
+			log.Error().Err(err).Msgf("Error performing request for URL: %s", urjoin)
+			continue
+		}
+
+		statusCode := float64(resp.StatusCode)
+		payload := &models.Url{Path: urjoin, Progress: progress, Status: statusCode}
+		payloadBuf := new(bytes.Buffer)
+		err = json.NewEncoder(payloadBuf).Encode(payload)
+		checkError(err)
+
+		dfileHandler(Mu, domain, urjoin, statusCode, progress)
+		if verbose {
+			log.Info().Msg(fmt.Sprintf("%s => %s", urjoin, resp.Status))
+		}
 	}
 }
 
