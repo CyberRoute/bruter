@@ -34,10 +34,11 @@ var app config.AppConfig
 var session *scs.SessionManager
 
 var (
-	Domain  = flag.String("domain", "", "domain to scan")
-	Apikey  = flag.String("shodan", "", "shadan api key")
-	Address = flag.String("address", "127.0.0.1", "IP address to bind the web ui server to.")
-	Verbose = flag.Bool("verbose", false, "Verbosity")
+	Domain     = flag.String("domain", "", "domain to scan")
+	Apikey     = flag.String("shodan", "", "shadan api key")
+	Address    = flag.String("address", "127.0.0.1", "IP address to bind the web ui server to.")
+	Dictionary = flag.String("dictionary", "db/apache-list", "File to use for enumeration.")
+	Verbose    = flag.Bool("verbose", false, "Verbosity")
 )
 
 func init() {
@@ -94,7 +95,7 @@ func main() {
 	}()
 
 	buffer := make([]byte, 500000) // 500K(almost)
-	file, err := os.Open("db/apache-list")
+	file, err := os.Open(*Dictionary)
 	if err != nil {
 		log.Fatal().Err(err).Msg("")
 	}
