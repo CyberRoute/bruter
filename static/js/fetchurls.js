@@ -23,11 +23,6 @@ function fetchUrls() {
 					container.innerHTML += `<p>${url.id} ${url.path} - <span style="color: green;"> http code: ${url.status} progress: ${url.progress} ${url.data}</span></p>`;
 				}
 			});
-
-			// Update header if progress bar is at 100%
-			if (bar.style.width === "100%") {
-				cardHeader.innerHTML = '<h5><i class="bi bi-search"></i> Directory Fuzzing Completed</h5>';
-			}
 		} else {
 			console.error("Error fetching data");
 		}
