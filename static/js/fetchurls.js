@@ -9,10 +9,7 @@ function fetchUrls() {
 			// Get container element
 			const container = document.getElementById("container");
 			var bar = document.querySelector(".progress-bar");
-			var cardHeader = document.querySelector(".card-header h5");
 			var speedElement = document.getElementById("data");
-
-
 			// Clear loading message and append data
 			container.innerHTML = "";
 			data.Urls.forEach(url => {
