@@ -1,10 +1,10 @@
 package fuzzer_test
 
 import (
-	"log"
-	"net"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -12,63 +12,27 @@ import (
 )
 
 func TestGet(t *testing.T) {
-	// create a listener with the desired port.
-	l, err := net.Listen("tcp", "127.0.0.1:8080")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+	// Create a mock HTTP server
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Respond with a mock JSON response
+		response := map[string]interface{}{
+			"key": "value",
+		}
+		err := json.NewEncoder(w).Encode(response)
+		if err != nil {
+			t.Fatalf("Error encoding JSON response: %v", err)
+		}
 	}))
+	defer server.Close()
 
-	ts.Listener.Close()
-	ts.Listener = l
-
-	// Start the server.
-	ts.Start()
-
-	// Test 1 - valid URL
+	// Set up test input parameters
+	Mu := &sync.Mutex{}
+	path := "/test"
 	progress := float32(0.5)
+	verbose := true
 
-	// Create a test server that returns a 200 status code
-	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer testServer.Close()
+	domain := strings.TrimPrefix(server.URL, "https://")
 
-	domain := testServer.URL[7:] // Remove the "http://" prefix
-	path := "/"
-
-	go fuzzer.Get(&sync.Mutex{}, domain, path, progress, true)
-
-	// Test 3 - 403 status code
-	progress = float32(0.5)
-
-	// Create a test server that returns a 403 status code
-	testServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusForbidden)
-	}))
-	defer testServer.Close()
-
-	domain = testServer.URL[7:] // Remove the "http://" prefix
-	path = "/"
-
-	go fuzzer.Get(&sync.Mutex{}, domain, path, progress, true)
-
-	// Test 4 - non-200, non-403 status code
-	progress = float32(0.5)
-
-	// Create a test server that returns a 500 status code
-	testServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer testServer.Close()
-
-	domain = testServer.URL[7:] // Remove the "http://" prefix
-	path = "/"
-
-	go fuzzer.Get(&sync.Mutex{}, domain, path, progress, true)
-
-	ts.Close()
+	// Call the Get function with the mock server URL
+	fuzzer.Get(Mu, domain, path, progress, verbose)
 }

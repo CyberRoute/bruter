@@ -22,16 +22,15 @@ func checkError(err error) {
 }
 
 func Get(Mu *sync.Mutex, domain, path string, progress float32, verbose bool) {
-	urjoin := "http://" + domain + path
+	urjoin := "https://" + domain + path
 	url, err := url.Parse(urjoin)
 	if err != nil {
-		log.Error().Err(err).Msg("")
+		log.Error().Err(err).Msgf("Error parsing URL: %s", urjoin)
 	}
 
 	get, err := http.NewRequest("GET", url.String(), nil)
 	if err != nil {
-		log.Error().Err(err).Msg("")
-		return
+		log.Error().Err(err).Msgf("Error creating request for URL: %s", urjoin)
 	}
 
 	client := &http.Client{
@@ -42,8 +41,7 @@ func Get(Mu *sync.Mutex, domain, path string, progress float32, verbose bool) {
 
 	resp, err := client.Do(get)
 	if err != nil {
-		log.Error().Err(err).Msg("")
-		return
+		log.Error().Err(err).Msgf("Error performing request for URL: %s", urjoin)
 	}
 
 	statusCode := float64(resp.StatusCode)
