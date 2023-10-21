@@ -8,6 +8,7 @@ import (
 	"github.com/CyberRoute/bruter/pkg/models"
 	"github.com/CyberRoute/bruter/pkg/network"
 	"github.com/CyberRoute/bruter/pkg/shodan"
+	"github.com/CyberRoute/bruter/pkg/ssl"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/rs/zerolog/log"
@@ -53,6 +54,8 @@ func routes(app *config.AppConfig) http.Handler {
 	checkError(err)
 	irc, err := grabber.GrabIRCBanner(app.Domain, hostinfo.Ports)
 	checkError(err)
+	sslinfo, err := ssl.FetchCrtData(app.Domain)
+	checkError(err)
 	homeargs := models.HomeArgs{
 		Ipv4:    ipv4,
 		Ipv6:    ipv6,
@@ -66,7 +69,11 @@ func routes(app *config.AppConfig) http.Handler {
 		Pop:     pop,
 		Irc:     irc,
 	}
+	sslargs := models.HomeArgs{
+		SSLInfo: sslinfo,
+	}
 	mux.Get("/", handlers.Repo.Home(homeargs))
+	mux.Get("/ssl", handlers.Repo.SSLInfo(sslargs))
 	mux.Get("/consumer", handlers.Repo.Consumer)
 	fileServer := http.FileServer(http.Dir("./static/"))
 	mux.Handle("/static/*", http.StripPrefix("/static", fileServer))

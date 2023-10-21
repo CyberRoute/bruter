@@ -114,3 +114,8 @@
 /.catalog
 /.cc-ban.txt
 /.cc-ban.txt.bak
+/%EXT%.7z
+/%EXT%.backup
+/%EXT%.bak
+/%EXT%.cgi
+/%EXT%.conf

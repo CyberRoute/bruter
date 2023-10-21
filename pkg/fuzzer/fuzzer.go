@@ -5,14 +5,13 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"github.com/CyberRoute/bruter/pkg/models"
+	"github.com/rs/zerolog/log"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"sync"
-
-	"github.com/CyberRoute/bruter/pkg/models"
-	"github.com/rs/zerolog/log"
 )
 
 func checkError(err error) {

@@ -11,6 +11,7 @@ import (
 	"github.com/CyberRoute/bruter/pkg/config"
 	"github.com/CyberRoute/bruter/pkg/models"
 	"github.com/CyberRoute/bruter/pkg/render"
+	"github.com/CyberRoute/bruter/pkg/ssl"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -63,6 +64,16 @@ func (m *Repository) Home(args models.HomeArgs) http.HandlerFunc {
 			StringMap:  stringMap,
 			Data:       uint16Map,
 			HeadersMap: headersMap,
+		})
+	}
+}
+
+func (m *Repository) SSLInfo(args models.HomeArgs) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sslinfo, err := ssl.FetchCrtData(m.App.Domain)
+		checkError(err)
+		render.RenderTemplate(w, "ssl.page.html", &models.TemplateData{
+			SSLInfo: sslinfo,
 		})
 	}
 }

@@ -20,6 +20,5 @@ func FetchCrtData(domain string) ([]map[string]interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	return data, nil
 }
