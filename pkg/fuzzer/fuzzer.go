@@ -5,13 +5,15 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"github.com/CyberRoute/bruter/pkg/models"
-	"github.com/rs/zerolog/log"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"sync"
+
+	"github.com/CyberRoute/bruter/pkg/models"
+	"github.com/rs/zerolog/log"
 )
 
 func checkError(err error) {
@@ -106,6 +108,12 @@ func readUrlsFromFile(filename string) (models.AllUrls, error) {
 }
 
 func writeUrlsToFile(filename string, allUrls models.AllUrls) error {
+	// Sort the URLs based on the Progress field in ascending order
+	sort.Slice(allUrls.Urls, func(i, j int) bool {
+		return allUrls.Urls[i].Progress < allUrls.Urls[j].Progress
+	})
+
+	// Marshal and write the sorted URLs to the file
 	newUserBytes, err := json.MarshalIndent(allUrls.Urls, "", " ")
 	if err != nil {
 		return err
