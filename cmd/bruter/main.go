@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"strings"
@@ -116,12 +117,13 @@ func main() {
 	})
 
 	for index, payload := range list {
-		index += shift
+		modifiedIndex := index + shift
 
 		// Replace %EXT% with extensions
 		payload = strings.ReplaceAll(payload, "%EXT%", "js")
 
-		progress := 100 * float32(index) / float32(total)
+		progress := 100 * float32(modifiedIndex) / float32(total)
+		progress = float32(math.Round(float64(progress))) // Round the progress to the nearest integer
 		queue.Add(async.Job(&workerContext{
 			Mu:       &app.Mu,
 			Domain:   *Domain,

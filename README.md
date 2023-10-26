@@ -15,6 +15,7 @@ What does it do?
 # Usage
 ```
    Usage of /tmp/go-build2863756334/b001/exe/main:
+   
   -address string
     	IP address to bind the web ui server to. (default "127.0.0.1")
   -dictionary string

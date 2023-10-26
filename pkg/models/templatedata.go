@@ -8,6 +8,7 @@ type TemplateData struct {
 	Data                map[string]interface{}
 	HeadersMap          map[string]interface{}
 	FtpBannerGrabberMap map[string]interface{}
+	SSLInfo             []map[string]interface{}
 	CSRFToken           string
 	Flash               string
 	Warning             string

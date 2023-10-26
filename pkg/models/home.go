@@ -1,6 +1,8 @@
 package models
 
-import "github.com/CyberRoute/bruter/pkg/shodan"
+import (
+	"github.com/CyberRoute/bruter/pkg/shodan"
+)
 
 type HomeArgs struct {
 	Ipv4    string
@@ -8,6 +10,7 @@ type HomeArgs struct {
 	Host    shodan.Response
 	Headers map[string]interface{}
 	Mx      map[string]uint16
+	SSLInfo []map[string]interface{}
 	Ftp     string
 	Ssh     string
 	Mysql   string
