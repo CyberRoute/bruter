@@ -3,9 +3,10 @@ package shodan
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/rs/zerolog/log"
 	"net/http"
 	"time"
+
+	"github.com/CyberRoute/bruter/pkg/config"
 )
 
 type Response struct {
@@ -50,7 +51,7 @@ func NewClient(client *http.Client, ipv4, token string) *Client {
 	}
 }
 
-func (c *Client) HostInfo() (Response, error) {
+func (c *Client) HostInfo(app *config.AppConfig) (Response, error) {
 	url := fmt.Sprintf(c.BaseURL+c.Path, c.IPv4, c.Token)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -78,7 +79,7 @@ func (c *Client) HostInfo() (Response, error) {
 
 	switch resp.StatusCode {
 	case 200:
-		log.Info().Msg(fmt.Sprintf("status code from shodan %d => %s", resp.StatusCode, "OK"))
+		app.ZeroLog.Info().Msg(fmt.Sprintf("status code from shodan %d => %s", resp.StatusCode, "OK"))
 	case 401:
 		return Response{}, fmt.Errorf("unauthorized response")
 	case 404:
