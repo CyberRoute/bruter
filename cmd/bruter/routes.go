@@ -11,13 +11,12 @@ import (
 	"github.com/CyberRoute/bruter/pkg/ssl"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/rs/zerolog/log"
 	"net/http"
 )
 
 func checkError(err error) {
 	if err != nil {
-		log.Error().Err(err).Msg("")
+		app.ZeroLog.Error().Err(err).Msg("")
 	}
 }
 
@@ -36,7 +35,7 @@ func routes(app *config.AppConfig) http.Handler {
 	}
 	client := &http.Client{Transport: customTransport}
 	shodan := shodan.NewClient(client, ipv4, app.ShodanAPIKey)
-	hostinfo, err := shodan.HostInfo()
+	hostinfo, err := shodan.HostInfo(app)
 	checkError(err)
 	headers, err := shodan.Head("http://" + app.Domain)
 	checkError(err)
@@ -48,6 +47,7 @@ func routes(app *config.AppConfig) http.Handler {
 	checkError(err)
 	ftp, err := grabber.GrabFTPBanner(app.Domain, hostinfo.Ports)
 	checkError(err)
+
 	smtp, err := grabber.GrabSMTPBanner(app.Domain, hostinfo.Ports)
 	checkError(err)
 	pop, err := grabber.GrabPOPBanner(app.Domain, hostinfo.Ports)

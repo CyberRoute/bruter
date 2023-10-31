@@ -12,6 +12,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/CyberRoute/bruter/pkg/config"
 	"github.com/CyberRoute/bruter/pkg/models"
 	"github.com/rs/zerolog/log"
 )
@@ -22,16 +23,17 @@ func checkError(err error) {
 	}
 }
 
-func Get(Mu *sync.Mutex, domain, path string, progress float32, verbose bool) {
+func Get(Mu *sync.Mutex, app *config.AppConfig, domain, path string, progress float32, verbose bool) {
 	urjoin := "https://" + domain + path
 	url, err := url.Parse(urjoin)
 	if err != nil {
-		log.Error().Err(err).Msgf("Error parsing URL: %s", urjoin)
+		//log.Error().Err(err).Msgf("Error parsing URL: %s", urjoin)
+		app.ZeroLog.Error().Err(err).Msgf("Error parsing URL: %s", urjoin)
 	}
 
 	get, err := http.NewRequest("GET", url.String(), nil)
 	if err != nil {
-		log.Error().Err(err).Msgf("Error creating request for URL: %s", urjoin)
+		app.ZeroLog.Error().Err(err).Msgf("Error creating request for URL: %s", urjoin)
 	}
 
 	client := &http.Client{
@@ -42,7 +44,7 @@ func Get(Mu *sync.Mutex, domain, path string, progress float32, verbose bool) {
 
 	resp, err := client.Do(get)
 	if err != nil {
-		log.Error().Err(err).Msgf("Error performing request for URL: %s", urjoin)
+		app.ZeroLog.Error().Err(err).Msgf("Error performing request for URL: %s", urjoin)
 	}
 
 	statusCode := float64(resp.StatusCode)
@@ -53,7 +55,7 @@ func Get(Mu *sync.Mutex, domain, path string, progress float32, verbose bool) {
 
 	dfileHandler(Mu, domain, urjoin, statusCode, progress)
 	if verbose {
-		log.Info().Msg(fmt.Sprintf("%s => %s", urjoin, resp.Status))
+		app.ZeroLog.Info().Msg(fmt.Sprintf("%s => %s", urjoin, resp.Status))
 	}
 }
 

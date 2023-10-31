@@ -42,9 +42,6 @@ var (
 	Verbose    = flag.Bool("verbose", false, "Verbosity")
 )
 
-func init() {
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
-}
 
 func main() {
 
@@ -55,8 +52,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	logger := log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+
+	app.ZeroLog = &logger
+
 	IP, _ := network.ResolveByName(*Domain)
-	log.Info().Msg(fmt.Sprintf("Scanning IP %s %s", IP, "OK"))
+	logger.Info().Msg(fmt.Sprintf("Scanning IP %s %s", IP, "OK"))
 
 	app.InProduction = false
 
@@ -70,7 +71,7 @@ func main() {
 
 	tc, err := render.CreateTemplateCache()
 	if err != nil {
-		log.Fatal().Err(err).Msg("cannot create template cache")
+		logger.Fatal().Err(err).Msg("cannot create template cache")
 	}
 
 	app.TemplateCache = tc
@@ -89,7 +90,7 @@ func main() {
 	}
 
 	go func() {
-		log.Info().Msg(fmt.Sprintf("UI running on http://%s%s/", *Address, portNumber))
+		logger.Info().Msg(fmt.Sprintf("UI running on http://%s%s/", *Address, portNumber))
 		if err := srv.ListenAndServe(); err != nil {
 			panic(err)
 		}
@@ -98,13 +99,13 @@ func main() {
 	buffer := make([]byte, 500000) // 500K(almost)
 	file, err := os.Open(*Dictionary)
 	if err != nil {
-		log.Fatal().Err(err).Msg("")
+		logger.Fatal().Err(err).Msg("")
 	}
 	defer file.Close()
 
 	EOB, err := file.Read(buffer)
 	if err != nil {
-		log.Fatal().Err(err).Msg("")
+		logger.Fatal().Err(err).Msg("")
 	}
 
 	list := strings.Split(string(buffer[:EOB]), "\n")
@@ -113,7 +114,7 @@ func main() {
 
 	queue := async.NewQueue(0, func(arg async.Job) {
 		ctx := arg.(*workerContext)
-		fuzzer.Get(ctx.Mu, ctx.Domain, ctx.Path, ctx.Progress, ctx.Verbose)
+		fuzzer.Get(ctx.Mu, &app, ctx.Domain, ctx.Path, ctx.Progress, ctx.Verbose)
 	})
 
 	for index, payload := range list {

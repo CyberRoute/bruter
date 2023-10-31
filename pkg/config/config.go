@@ -1,8 +1,8 @@
 package config
 
 import (
+	"github.com/rs/zerolog"
 	"html/template"
-	"log"
 	"sync"
 
 	"github.com/alexedwards/scs/v2"
@@ -12,7 +12,7 @@ import (
 type AppConfig struct {
 	UseCache      bool
 	TemplateCache map[string]*template.Template
-	InfoLog       *log.Logger
+	ZeroLog       *zerolog.Logger
 	InProduction  bool
 	Session       *scs.SessionManager
 	Domain        string
