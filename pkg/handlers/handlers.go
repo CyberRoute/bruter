@@ -12,8 +12,6 @@ import (
 	"github.com/CyberRoute/bruter/pkg/models"
 	"github.com/CyberRoute/bruter/pkg/render"
 	"github.com/CyberRoute/bruter/pkg/ssl"
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 )
 
 // Repo used by the handlers
@@ -71,7 +69,7 @@ func (m *Repository) Home(args models.HomeArgs) http.HandlerFunc {
 func (m *Repository) SSLInfo(args models.HomeArgs) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sslinfo, err := ssl.FetchCrtData(m.App.Domain)
-		checkError(err)
+		m.checkError(err)
 		render.RenderTemplate(w, "ssl.page.html", &models.TemplateData{
 			SSLInfo: sslinfo,
 		})
@@ -87,24 +85,23 @@ func (m *Repository) Consumer(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	session_file := m.App.Domain + ".json"
 	file, err := os.OpenFile(session_file, os.O_CREATE|os.O_RDWR, 0644)
-	checkError(err)
+	m.checkError(err)
 	defer file.Close()
 
 	b, err := io.ReadAll(file)
-	checkError(err)
+	m.checkError(err)
 	var allUrls models.AllUrls
 	if len(b) > 0 {
 		err = json.Unmarshal(b, &allUrls.Urls)
-		checkError(err)
+		m.checkError(err)
 	}
 
 	err = json.NewEncoder(w).Encode(allUrls)
-	checkError(err)
+	m.checkError(err)
 }
 
-func checkError(err error) {
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+func (m *Repository) checkError(err error) {
 	if err != nil {
-		log.Error().Err(err).Msg("CONSUMER")
+		m.App.ZeroLog.Error().Err(err).Msg("")
 	}
 }
