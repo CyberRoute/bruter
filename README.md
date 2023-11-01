@@ -10,6 +10,8 @@ What does it do?
 - It collects banners for various services FTP, SSH, MYSQL, IRC, SMTP
 - It collects HTTP headers
 - It brute force directories on WebServers and reports results (200)
+- It provides info from crt.sh about SSL certificates
+- It supports custom wordlists
 - It produces a Web UI for presentation
 
 # Usage
