@@ -15,6 +15,7 @@ import (
 	"github.com/CyberRoute/bruter/pkg/handlers"
 	"github.com/CyberRoute/bruter/pkg/network"
 	"github.com/CyberRoute/bruter/pkg/render"
+	"github.com/CyberRoute/bruter/pkg/driver"
 	"github.com/alexedwards/scs/v2"
 	"github.com/evilsocket/islazy/async"
 	"github.com/rs/zerolog"
@@ -55,6 +56,34 @@ func main() {
 	IP, _ := network.ResolveByName(*Domain)
 	logger.Info().Msg(fmt.Sprintf("Scanning IP %s %s", IP, "OK"))
 
+	db, err := run(&logger)
+	if err != nil {
+		logger.Info().Msg(err.Error())
+	}
+	defer db.SQL.Close()
+
+
+	
+
+	file, err := os.Open(*Dictionary)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("")
+	}
+	defer file.Close()
+
+	list := readDictionary(file)
+	total := len(list)
+	shift := 1
+
+	queue := createQueue(&app.Mu, *Domain, list, shift, total, *Verbose)
+
+	queue.WaitDone()
+
+	fmt.Println("\nAll tasks completed, press Ctrl-C to quit.")
+	select {}
+}
+
+func run(logger *zerolog.Logger) (*driver.DB, error) {
 	app.InProduction = false
 	session = scs.New()
 	session.Lifetime = 24 * time.Hour
@@ -62,6 +91,14 @@ func main() {
 	session.Cookie.SameSite = http.SameSiteLaxMode
 	session.Cookie.Secure = app.InProduction
 	app.Session = session
+	// conct to database
+	logger.Info().Msg("Connecting to Postgres")
+	db, err := driver.ConnectSQL("host=localhost port=5432 dbname= user= password=")
+	if err != nil {
+		return nil, err
+	}
+	logger.Info().Msg("Connected to Postgres")
+
 
 	tc, err := render.CreateTemplateCache()
 	if err != nil {
@@ -87,23 +124,7 @@ func main() {
 			panic(err)
 		}
 	}()
-
-	file, err := os.Open(*Dictionary)
-	if err != nil {
-		logger.Fatal().Err(err).Msg("")
-	}
-	defer file.Close()
-
-	list := readDictionary(file)
-	total := len(list)
-	shift := 1
-
-	queue := createQueue(&app.Mu, *Domain, list, shift, total, *Verbose)
-
-	queue.WaitDone()
-
-	fmt.Println("\nAll tasks completed, press Ctrl-C to quit.")
-	select {}
+	return db, nil
 }
 
 func readDictionary(file *os.File) []string {
