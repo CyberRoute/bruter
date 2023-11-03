@@ -36,15 +36,13 @@ var session *scs.SessionManager
 
 var (
 	Domain     = flag.String("domain", "", "domain to scan")
-	Apikey     = flag.String("shodan", "", "shadan api key")
-	Address    = flag.String("address", "127.0.0.1", "IP address to bind the web ui server to.")
+	Apikey     = flag.String("shodan", "", "shodan API key")
+	Address    = flag.String("address", "127.0.0.1", "IP address to bind the web UI server to.")
 	Dictionary = flag.String("dictionary", "db/apache-list", "File to use for enumeration.")
 	Verbose    = flag.Bool("verbose", false, "Verbosity")
 )
 
-
 func main() {
-
 	flag.Parse()
 	if *Domain == "" {
 		fmt.Println("No domain specified.")
@@ -53,27 +51,22 @@ func main() {
 	}
 
 	logger := log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
-
 	app.ZeroLog = &logger
-
 	IP, _ := network.ResolveByName(*Domain)
 	logger.Info().Msg(fmt.Sprintf("Scanning IP %s %s", IP, "OK"))
 
 	app.InProduction = false
-
 	session = scs.New()
 	session.Lifetime = 24 * time.Hour
 	session.Cookie.Persist = true
 	session.Cookie.SameSite = http.SameSiteLaxMode
 	session.Cookie.Secure = app.InProduction
-
 	app.Session = session
 
 	tc, err := render.CreateTemplateCache()
 	if err != nil {
 		logger.Fatal().Err(err).Msg("cannot create template cache")
 	}
-
 	app.TemplateCache = tc
 	app.UseCache = false
 	app.Domain = *Domain
@@ -81,7 +74,6 @@ func main() {
 
 	repo := handlers.NewRepo(&app)
 	handlers.NewHandlers(repo)
-
 	render.NewTemplates(&app)
 
 	srv := &http.Server{
@@ -96,22 +88,34 @@ func main() {
 		}
 	}()
 
-	buffer := make([]byte, 500000) // 500K(almost)
 	file, err := os.Open(*Dictionary)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("")
 	}
 	defer file.Close()
 
-	EOB, err := file.Read(buffer)
-	if err != nil {
-		logger.Fatal().Err(err).Msg("")
-	}
-
-	list := strings.Split(string(buffer[:EOB]), "\n")
+	list := readDictionary(file)
 	total := len(list)
 	shift := 1
 
+	queue := createQueue(&app.Mu, *Domain, list, shift, total, *Verbose)
+
+	queue.WaitDone()
+
+	fmt.Println("\nAll tasks completed, press Ctrl-C to quit.")
+	select {}
+}
+
+func readDictionary(file *os.File) []string {
+	buffer := make([]byte, 500000) // 500K (almost)
+	EOB, err := file.Read(buffer)
+	if err != nil {
+		log.Fatal().Err(err).Msg("")
+	}
+	return strings.Split(string(buffer[:EOB]), "\n")
+}
+
+func createQueue(mu *sync.Mutex, domain string, list []string, shift, total int, verbose bool) *async.WorkQueue {
 	queue := async.NewQueue(0, func(arg async.Job) {
 		ctx := arg.(*workerContext)
 		fuzzer.Get(ctx.Mu, &app, ctx.Domain, ctx.Path, ctx.Progress, ctx.Verbose)
@@ -119,23 +123,16 @@ func main() {
 
 	for index, payload := range list {
 		modifiedIndex := index + shift
-
-		// Replace %EXT% with extensions
 		payload = strings.ReplaceAll(payload, "%EXT%", "js")
-
 		progress := 100 * float32(modifiedIndex) / float32(total)
-		progress = float32(math.Round(float64(progress))) // Round the progress to the nearest integer
+		progress = float32(math.Round(float64(progress)))
 		queue.Add(async.Job(&workerContext{
-			Mu:       &app.Mu,
-			Domain:   *Domain,
+			Mu:       mu,
+			Domain:   domain,
 			Path:     payload,
 			Progress: progress,
-			Verbose:  *Verbose,
+			Verbose:  verbose,
 		}))
 	}
-
-	queue.WaitDone()
-
-	fmt.Println("\nAll tasks completed, press Ctrl-C to quit.")
-	select {}
+	return queue
 }
