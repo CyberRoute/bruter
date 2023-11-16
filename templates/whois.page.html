@@ -1,0 +1,20 @@
+{{template "base" .}}
+
+{{define "content"}}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col">
+            <div class="card bg-dark text-light mb-4">
+                <div class="card-body">
+                    <div class="card-header bg-success">
+                        <h5><i class="bi bi-search"></i> WHOIS Information</h5>
+                    </div>
+                    <div class="mt-3">
+                        <p class="text-break">{{.WhoisInfo}}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}

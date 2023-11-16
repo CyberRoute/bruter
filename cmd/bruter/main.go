@@ -71,7 +71,6 @@ func main() {
 	app.UseCache = false
 	app.Domain = *Domain
 	app.ShodanAPIKey = *Apikey
-
 	repo := handlers.NewRepo(&app)
 	handlers.NewHandlers(repo)
 	render.NewTemplates(&app)
