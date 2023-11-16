@@ -2,7 +2,10 @@ package network
 
 import (
 	"fmt"
+	"github.com/likexian/whois"
+	"html/template"
 	"net"
+	"strings"
 )
 
 func ResolveByName(domain string) (string, error) {
@@ -34,4 +37,20 @@ func FindMX(domain string) (map[string]uint16, error) {
 		mx_records[mxRecord.Host] = mxRecord.Pref
 	}
 	return mx_records, nil
+}
+
+func WhoisLookup(domain string) (template.HTML, error) {
+	result, err := whois.Whois(domain)
+	if err != nil {
+		return "", fmt.Errorf("failed to perform WHOIS lookup: %v", err)
+	}
+	lines := strings.Split(result, "\n")
+	for i, line := range lines {
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) == 2 {
+			lines[i] = parts[0] + ":" + parts[1]
+		}
+	}
+	result = strings.Join(lines, "<br>")
+	return template.HTML(result), nil
 }

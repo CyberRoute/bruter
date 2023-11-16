@@ -3,15 +3,15 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/CyberRoute/bruter/pkg/config"
+	"github.com/CyberRoute/bruter/pkg/models"
+	"github.com/CyberRoute/bruter/pkg/network"
+	"github.com/CyberRoute/bruter/pkg/render"
+	"github.com/CyberRoute/bruter/pkg/ssl"
 	"io"
 	"net/http"
 	"os"
 	"strings"
-
-	"github.com/CyberRoute/bruter/pkg/config"
-	"github.com/CyberRoute/bruter/pkg/models"
-	"github.com/CyberRoute/bruter/pkg/render"
-	"github.com/CyberRoute/bruter/pkg/ssl"
 )
 
 // Repo used by the handlers
@@ -68,11 +68,21 @@ func (m *Repository) Home(args models.HomeArgs) http.HandlerFunc {
 
 func (m *Repository) SSLInfo(args models.HomeArgs) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		sslinfo, err := ssl.FetchCrtData(m.App.Domain)
+		var templateData models.TemplateData
+		sslInfo, err := ssl.FetchCrtData(m.App.Domain)
 		m.checkError(err)
-		render.RenderTemplate(w, "ssl.page.html", &models.TemplateData{
-			SSLInfo: sslinfo,
-		})
+		templateData.SSLInfo = sslInfo
+		render.RenderTemplate(w, "ssl.page.html", &templateData)
+	}
+}
+
+func (m *Repository) WhoisInfo(args models.HomeArgs) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var templateData models.TemplateData
+		whoisInfo, err := network.WhoisLookup(m.App.Domain)
+		m.checkError(err)
+		templateData.WhoisInfo = whoisInfo
+		render.RenderTemplate(w, "whois.page.html", &templateData)
 	}
 }
 

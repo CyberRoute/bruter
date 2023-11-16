@@ -11,6 +11,7 @@ import (
 	"github.com/CyberRoute/bruter/pkg/ssl"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"html/template"
 	"net/http"
 )
 
@@ -34,28 +35,68 @@ func routes(app *config.AppConfig) http.Handler {
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
 	client := &http.Client{Transport: customTransport}
-	shodan := shodan.NewClient(client, ipv4, app.ShodanAPIKey)
-	hostinfo, err := shodan.HostInfo(app)
-	checkError(err)
-	headers, err := shodan.Head("http://" + app.Domain)
-	checkError(err)
-	mx_records, err := network.FindMX(app.Domain)
-	checkError(err)
-	mysql, err := grabber.GrabMysqlBanner(app.Domain, hostinfo.Ports)
-	checkError(err)
-	ssh, err := grabber.GrabSSHBanner(app.Domain, hostinfo.Ports)
-	checkError(err)
-	ftp, err := grabber.GrabFTPBanner(app.Domain, hostinfo.Ports)
-	checkError(err)
+	sh := shodan.NewClient(client, ipv4, app.ShodanAPIKey)
 
-	smtp, err := grabber.GrabSMTPBanner(app.Domain, hostinfo.Ports)
-	checkError(err)
-	pop, err := grabber.GrabPOPBanner(app.Domain, hostinfo.Ports)
-	checkError(err)
-	irc, err := grabber.GrabIRCBanner(app.Domain, hostinfo.Ports)
-	checkError(err)
-	sslinfo, err := ssl.FetchCrtData(app.Domain)
-	checkError(err)
+	var (
+		hostinfo   shodan.Response
+		headers    map[string]interface{}
+		mx_records map[string]uint16
+		whoisinfo  template.HTML
+		mysql      string
+		ssh        string
+		ftp        string
+		smtp       string
+		pop        string
+		irc        string
+		sslinfo    []map[string]interface{}
+	)
+
+	RunConcurrently(
+		func() {
+			hostinfo, err = sh.HostInfo(app)
+			checkError(err)
+		},
+		func() {
+			headers, err = sh.Head("https://" + app.Domain)
+			checkError(err)
+		},
+		func() {
+			mx_records, err = network.FindMX(app.Domain)
+			checkError(err)
+		},
+		func() {
+			whoisinfo, err = network.WhoisLookup(app.Domain)
+			checkError(err)
+		},
+		func() {
+			mysql, err = grabber.GrabMysqlBanner(app.Domain, hostinfo.Ports)
+			checkError(err)
+		},
+		func() {
+			ssh, err = grabber.GrabSSHBanner(app.Domain, hostinfo.Ports)
+			checkError(err)
+		},
+		func() {
+			ftp, err = grabber.GrabFTPBanner(app.Domain, hostinfo.Ports)
+			checkError(err)
+		},
+		func() {
+			smtp, err = grabber.GrabSMTPBanner(app.Domain, hostinfo.Ports)
+			checkError(err)
+		},
+		func() {
+			pop, err = grabber.GrabPOPBanner(app.Domain, hostinfo.Ports)
+			checkError(err)
+		},
+		func() {
+			irc, err = grabber.GrabIRCBanner(app.Domain, hostinfo.Ports)
+			checkError(err)
+		},
+		func() {
+			sslinfo, err = ssl.FetchCrtData(app.Domain)
+			checkError(err)
+		},
+	)
 	homeargs := models.HomeArgs{
 		Ipv4:    ipv4,
 		Ipv6:    ipv6,
@@ -69,11 +110,18 @@ func routes(app *config.AppConfig) http.Handler {
 		Pop:     pop,
 		Irc:     irc,
 	}
+
 	sslargs := models.HomeArgs{
 		SSLInfo: sslinfo,
 	}
+
+	whoisargs := models.HomeArgs{
+		WhoisInfo: whoisinfo,
+	}
+
 	mux.Get("/", handlers.Repo.Home(homeargs))
 	mux.Get("/ssl", handlers.Repo.SSLInfo(sslargs))
+	mux.Get("/whois", handlers.Repo.WhoisInfo(whoisargs))
 	mux.Get("/consumer", handlers.Repo.Consumer)
 	fileServer := http.FileServer(http.Dir("./static/"))
 	mux.Handle("/static/*", http.StripPrefix("/static", fileServer))
