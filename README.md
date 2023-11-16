@@ -9,6 +9,7 @@ What does it do?
 - It grabs HostInfo data from Shodan APIs, so you will need a Token to try this out
 - It collects banners for various services FTP, SSH, MYSQL, IRC, SMTP
 - It collects HTTP headers
+- It collects WHOIS query information
 - It brute force directories on WebServers and reports results (200)
 - It provides info from crt.sh about SSL certificates
 - It supports custom wordlists
