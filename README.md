@@ -3,7 +3,7 @@
 
 
 # Bruter
-Bruter is a simple app that was built as an experiment while learning Go. It is indeed very much inspired by https://github.com/evilsocket/xray (but hey not copied ;)). The tooling can be used to test webservers and validate webservers configurations, but not just!
+Bruter is a simple app that was built as an experiment while learning Go. It is indeed very much inspired by [https://github.com/evilsocket/xray]git  (but hey not copied ;)). The tooling can be used to test webservers and validate webservers configurations, but not just!
 
 What does it do?
 - It grabs HostInfo data from Shodan APIs, so you will need a Token to try this out
@@ -116,4 +116,4 @@ go build -o build/bruter cmd/bruter/*.go
 Bruter is developed by Alessandro Bresciani with some help from various projects and released with GPL license.
 
 # Acknowledgments
-DB file https://github.com/CyberRoute/bruter/blob/main/db/dict.txt has been borrowed from https://github.com/maurosoria/dirsearch/blob/master/db/dicc.txt
+DB file [https://github.com/CyberRoute/bruter/blob/main/db/dict.txt] has been borrowed from [https://github.com/maurosoria/dirsearch/blob/master/db/dicc.txt]
