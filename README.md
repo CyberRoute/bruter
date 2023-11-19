@@ -15,7 +15,7 @@ What does it do?
 - It supports custom wordlists
 - It produces a Web UI for presentation
 
-# Usage
+## Usage
 ```
    Usage of /tmp/go-build2863756334/b001/exe/main:
    
@@ -31,14 +31,14 @@ What does it do?
     	Verbosity
 ```
 
-# Running in Docker
+## Running in Docker
 ```
 docker build -t bruter .
 docker run --rm -it -p 8080:8080 bruter -domain example.com -shodan [shodanapikey] -verbose
 ```
 
 
-# Example
+## Example
     go run cmd/bruter/* -domain example.com -shodan [SHODANTOKEN] -verbose
     12:41PM INF Scanning IP 93.184.216.34 OK
     12:41PM INF UI running on http://127.0.0.1:8080/
@@ -60,12 +60,12 @@ docker run --rm -it -p 8080:8080 bruter -domain example.com -shodan [shodanapike
     12:41PM INF http://example.com/apache/logs/error.log => 404 Not Found
     12:41PM INF http://example.com/apache/logs/error_log => 404 Not Found   
 
-# Example of the Web UI
+## Example of the Web UI
 <div align="center">
     <img src="/img/bruter.png" width="800px"</img> 
 </div>
 
-# Contribute
+## Contribute
 Fork the repo and send PRs
 
 ```
@@ -112,8 +112,8 @@ go build -o build/bruter cmd/bruter/*.go
 
 
 
-# License
+## License
 Bruter is developed by Alessandro Bresciani with some help from various projects and released with GPL license.
 
-# Acknowledgments
+## Acknowledgments
 [DB file](https://github.com/CyberRoute/bruter/blob/main/db/dict.txt) has been borrowed from [dirsearch](https://github.com/maurosoria/dirsearch/blob/master/db/dicc.txt)
