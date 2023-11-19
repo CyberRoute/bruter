@@ -66,7 +66,7 @@ func (m *Repository) Home(args models.HomeArgs) http.HandlerFunc {
 	}
 }
 
-func (m *Repository) SSLInfo(args models.HomeArgs) http.HandlerFunc {
+func (m *Repository) SSLInfo(args models.TemplateData) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var templateData models.TemplateData
 		sslInfo, err := ssl.FetchCrtData(m.App.Domain)
@@ -76,7 +76,7 @@ func (m *Repository) SSLInfo(args models.HomeArgs) http.HandlerFunc {
 	}
 }
 
-func (m *Repository) WhoisInfo(args models.HomeArgs) http.HandlerFunc {
+func (m *Repository) WhoisInfo(args models.TemplateData) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var templateData models.TemplateData
 		whoisInfo, err := network.WhoisLookup(m.App.Domain)

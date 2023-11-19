@@ -111,11 +111,11 @@ func routes(app *config.AppConfig) http.Handler {
 		Irc:     irc,
 	}
 
-	sslargs := models.HomeArgs{
+	sslargs := models.TemplateData{
 		SSLInfo: sslinfo,
 	}
 
-	whoisargs := models.HomeArgs{
+	whoisargs := models.TemplateData{
 		WhoisInfo: whoisinfo,
 	}
 
