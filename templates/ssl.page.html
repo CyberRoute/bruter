@@ -9,7 +9,7 @@
                 <div class="card bg-dark text-light mb-4">
                     <div class="card-body">
                         <div class="card-header bg-success">
-                            <h5><i class="bi bi-search"></i> crt.sh ID: </b> {{printf "%0.0f" .id}} </h5>
+                            <h5><i class="bi bi-search"></i> crt.sh ID: <a href="https://crt.sh/?id={{printf "%0.0f" .id}}" target="_blank" style="color: #003366;">{{printf "%0.0f" .id}}</a></h5>
                         </div>
                         <div class="mt-3">
                             <p class="text-break"><b>Common Name:</b> {{.common_name}}</p>
