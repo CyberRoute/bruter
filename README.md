@@ -114,3 +114,6 @@ go build -o build/bruter cmd/bruter/*.go
 
 # License
 Bruter is developed by Alessandro Bresciani with some help from various projects and released with GPL license.
+
+# Acknowledgments
+DB file https://github.com/CyberRoute/bruter/blob/main/db/dict.txt has been borrowed from https://github.com/maurosoria/dirsearch/blob/master/db/dicc.txt

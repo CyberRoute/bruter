@@ -52,7 +52,10 @@ func main() {
 
 	logger := log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 	app.ZeroLog = &logger
-	IP, _ := network.ResolveByName(*Domain)
+	IP, err := network.ResolveByName(*Domain)
+	if err != nil {
+		logger.Fatal().Msg(fmt.Sprintf("Unable to resolve %s", *Domain))
+	}
 	logger.Info().Msg(fmt.Sprintf("Scanning IP %s %s", IP, "OK"))
 
 	app.InProduction = false
