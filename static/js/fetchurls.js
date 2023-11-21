@@ -17,7 +17,7 @@ function fetchUrls() {
 				speedElement.innerText = url.data;
 				bar.innerText = url.progress.toFixed(0) + "%"; // format the percentage to one decimal place
 				if (url.status === 200) { // only display 200 status codes in green
-					container.innerHTML += `<p>${url.id} ${url.path} - <span style="color: green;"> http code: ${url.status} progress: ${url.progress} ${url.data}</span></p>`;
+					container.innerHTML += `<p>${url.id} <a href="${url.path}" target="_blank">${url.path}</a> - <span style="color: green;"> http code: ${url.status} progress: ${url.progress} ${url.data}</span></p>`;
 				}
 			});
 		} else {
