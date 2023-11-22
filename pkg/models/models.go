@@ -35,11 +35,12 @@ type TemplateData struct {
 
 // Urls holds data to be sent to the consumer api endpoint
 type Url struct {
-	Id       int     `json:"id"`
-	Path     string  `json:"path"`
-	Status   float64 `json:"status"`
-	Progress float32 `json:"progress"`
-	Data     string  `json:"data"`
+	Id           int     `json:"id"`
+	Path         string  `json:"path"`
+	Status       float64 `json:"status"`
+	Progress     float32 `json:"progress"`
+	Data         string  `json:"data"`
+	RedirectPath string  `json:"redirectpath"`
 }
 
 type AllUrls struct {

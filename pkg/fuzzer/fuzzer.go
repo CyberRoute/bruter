@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -27,7 +28,6 @@ func Get(Mu *sync.Mutex, app *config.AppConfig, domain, path string, progress fl
 	urjoin := "https://" + domain + path
 	url, err := url.Parse(urjoin)
 	if err != nil {
-		//log.Error().Err(err).Msgf("Error parsing URL: %s", urjoin)
 		app.ZeroLog.Error().Err(err).Msgf("Error parsing URL: %s", urjoin)
 	}
 
@@ -41,25 +41,40 @@ func Get(Mu *sync.Mutex, app *config.AppConfig, domain, path string, progress fl
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
 	}
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		return errors.New("Redirect")
+	}
 
 	resp, err := client.Do(get)
 	if err != nil {
 		app.ZeroLog.Error().Err(err).Msgf("Error performing request for URL: %s", urjoin)
 	}
+	if resp != nil && resp.StatusCode == http.StatusMovedPermanently || resp.StatusCode == http.StatusFound { //status codes 301 302
+		// Add the RedirectPath field to the payload
+		redirectPath := resp.Header.Get("Location")
+		fmt.Println(redirectPath)
+		payload := &models.Url{Path: urjoin, Progress: progress, Status: float64(resp.StatusCode), RedirectPath: redirectPath}
+		payloadBuf := new(bytes.Buffer)
+		err = json.NewEncoder(payloadBuf).Encode(payload)
+		checkError(err)
 
-	statusCode := float64(resp.StatusCode)
-	payload := &models.Url{Path: urjoin, Progress: progress, Status: statusCode}
-	payloadBuf := new(bytes.Buffer)
-	err = json.NewEncoder(payloadBuf).Encode(payload)
-	checkError(err)
+		dfileHandler(Mu, domain, urjoin, float64(resp.StatusCode), progress, redirectPath)
+	} else {
+		// For other status codes
+		payload := &models.Url{Path: urjoin, Progress: progress, Status: float64(resp.StatusCode)}
+		payloadBuf := new(bytes.Buffer)
+		err = json.NewEncoder(payloadBuf).Encode(payload)
+		checkError(err)
 
-	dfileHandler(Mu, domain, urjoin, statusCode, progress)
+		dfileHandler(Mu, domain, urjoin, float64(resp.StatusCode), progress, "")
+	}
+
 	if verbose {
 		app.ZeroLog.Info().Msg(fmt.Sprintf("%s => %s", urjoin, resp.Status))
 	}
 }
 
-func dfileHandler(Mu *sync.Mutex, domain, path string, status float64, progress float32) {
+func dfileHandler(Mu *sync.Mutex, domain, path string, status float64, progress float32, redirectPath string) {
 	Mu.Lock()
 	defer Mu.Unlock()
 
@@ -68,9 +83,10 @@ func dfileHandler(Mu *sync.Mutex, domain, path string, status float64, progress 
 	checkError(err)
 
 	newUrl := &models.Url{
-		Path:     path,
-		Status:   status,
-		Progress: progress,
+		Path:         path,
+		Status:       status,
+		Progress:     progress,
+		RedirectPath: redirectPath,
 	}
 
 	id := generateNewId(allUrls)
@@ -116,7 +132,7 @@ func writeUrlsToFile(filename string, allUrls models.AllUrls) error {
 	})
 
 	// Marshal and write the sorted URLs to the file
-	newUserBytes, err := json.MarshalIndent(allUrls.Urls, "", " ")
+	newUserBytes, err := json.Marshal(allUrls.Urls)
 	if err != nil {
 		return err
 	}

@@ -119,3 +119,6 @@
 /%EXT%.bak
 /%EXT%.cgi
 /%EXT%.conf
+/.gem
+/test
+/dvwa/
