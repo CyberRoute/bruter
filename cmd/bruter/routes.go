@@ -2,6 +2,9 @@ package main
 
 import (
 	"crypto/tls"
+	"html/template"
+	"net/http"
+
 	"github.com/CyberRoute/bruter/pkg/config"
 	"github.com/CyberRoute/bruter/pkg/grabber"
 	"github.com/CyberRoute/bruter/pkg/handlers"
@@ -11,8 +14,6 @@ import (
 	"github.com/CyberRoute/bruter/pkg/ssl"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"html/template"
-	"net/http"
 )
 
 func checkError(err error) {
@@ -51,6 +52,7 @@ func routes(app *config.AppConfig) http.Handler {
 		sslinfo    []map[string]interface{}
 	)
 
+	// Step 1: Execute functions that don't depend on hostinfo.Ports
 	RunConcurrently(
 		func() {
 			hostinfo, err = sh.HostInfo(app)
@@ -68,6 +70,14 @@ func routes(app *config.AppConfig) http.Handler {
 			whoisinfo, err = network.WhoisLookup(app.Domain)
 			checkError(err)
 		},
+		func() {
+			sslinfo, err = ssl.FetchCrtData(app.Domain)
+			checkError(err)
+		},
+	)
+
+	// Step 2: Execute functions that depend on hostinfo.Ports
+	RunConcurrently(
 		func() {
 			mysql, err = grabber.GrabMysqlBanner(app.Domain, hostinfo.Ports)
 			checkError(err)
@@ -90,10 +100,6 @@ func routes(app *config.AppConfig) http.Handler {
 		},
 		func() {
 			irc, err = grabber.GrabIRCBanner(app.Domain, hostinfo.Ports)
-			checkError(err)
-		},
-		func() {
-			sslinfo, err = ssl.FetchCrtData(app.Domain)
 			checkError(err)
 		},
 	)

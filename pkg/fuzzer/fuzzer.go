@@ -52,7 +52,6 @@ func Get(Mu *sync.Mutex, app *config.AppConfig, domain, path string, progress fl
 	if resp != nil && resp.StatusCode == http.StatusMovedPermanently || resp.StatusCode == http.StatusFound { //status codes 301 302
 		// Add the RedirectPath field to the payload
 		redirectPath := resp.Header.Get("Location")
-		fmt.Println(redirectPath)
 		payload := &models.Url{Path: urjoin, Progress: progress, Status: float64(resp.StatusCode), RedirectPath: redirectPath}
 		payloadBuf := new(bytes.Buffer)
 		err = json.NewEncoder(payloadBuf).Encode(payload)
