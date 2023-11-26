@@ -120,7 +120,7 @@ func readDictionary(file *os.File) []string {
 func createQueue(mu *sync.Mutex, domain string, list []string, shift, total int, verbose bool) *async.WorkQueue {
 	queue := async.NewQueue(0, func(arg async.Job) {
 		ctx := arg.(*workerContext)
-		fuzzer.Get(ctx.Mu, &app, ctx.Domain, ctx.Path, ctx.Progress, ctx.Verbose)
+		fuzzer.Dirsearch(ctx.Mu, &app, ctx.Domain, ctx.Path, ctx.Progress, ctx.Verbose)
 	})
 
 	for index, payload := range list {
