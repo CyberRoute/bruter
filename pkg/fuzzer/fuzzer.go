@@ -4,11 +4,9 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"sort"
 	"sync"
@@ -24,28 +22,30 @@ func checkError(err error) {
 	}
 }
 
-func Get(Mu *sync.Mutex, app *config.AppConfig, domain, path string, progress float32, verbose bool) {
-	urjoin := "https://" + domain + path
-	url, err := url.Parse(urjoin)
+func Dirsearch(Mu *sync.Mutex, app *config.AppConfig, domain, path string, progress float32, verbose bool) {
+	urjoin := domain + path
+	url, err := NormalizeURL(urjoin)
 	if err != nil {
 		app.ZeroLog.Error().Err(err).Msgf("Error parsing URL: %s", urjoin)
 	}
 
-	get, err := http.NewRequest("GET", url.String(), nil)
+	head, err := http.NewRequest("HEAD", url, nil)
 	if err != nil {
 		app.ZeroLog.Error().Err(err).Msgf("Error creating request for URL: %s", urjoin)
 	}
+	head.Header.Set("User-Agent", GetRandomUserAgent())
 
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	// Do not verify certificates, do not follow redirects.
 	client := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
-	}
-	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		return errors.New("Redirect")
-	}
+		Transport: tr,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		}}
 
-	resp, err := client.Do(get)
+	resp, err := client.Do(head)
 	if err != nil {
 		app.ZeroLog.Error().Err(err).Msgf("Error performing request for URL: %s", urjoin)
 	}
