@@ -21,14 +21,14 @@ function fetchUrls() {
                     let urlDisplay;
                     if (url.status === 301) {
                         // For 301 status code, use redirectpath
-                        urlDisplay = `<p>${url.id} <a href="${url.path}" target="_blank">${url.path}</a> - <span style="color: orange;">REDIRECTS TO:</span> <a href="${url.redirectpath}" target="_blank">${url.redirectpath}</a> - <span style="color: green;"> http code: ${url.status} progress: ${url.progress} ${url.data}</span></p>`;
+                        urlDisplay = `<p>${url.id} <a href="${url.path}" target="_blank">${url.path}</a> - <span style="color: orange;">REDIRECTS TO:</span> <a href="${url.redirectpath}" target="_blank">${url.redirectpath}</a> - <span style="color: green;"> http code: ${url.status} progress: ${url.progress}% ${url.data}</span></p>`;
                     } else if (url.status === 302) {
                         // For 302 status code, concatenate path and redirectpath
                         let targetPath = url.redirectpath ? url.path + url.redirectpath : url.path;
-                        urlDisplay = `<p>${url.id} <a href="${url.path}" target="_blank">${url.path}</a> - <span style="color: orange;">REDIRECTS TO:</span> <a href="${targetPath}" target="_blank">${targetPath}</a> - <span style="color: green;"> http code: ${url.status} progress: ${url.progress} ${url.data}</span></p>`;
+                        urlDisplay = `<p>${url.id} <a href="${url.path}" target="_blank">${url.path}</a> - <span style="color: orange;">REDIRECTS TO:</span> <a href="${targetPath}" target="_blank">${targetPath}</a> - <span style="color: green;"> http code: ${url.status} progress: ${url.progress}% ${url.data}</span></p>`;
                     } else {
                         // For other status codes (200), use the original path
-                        urlDisplay = `<p>${url.id} <a href="${url.path}" target="_blank">${url.path}</a> - <span style="color: green;"> http code: ${url.status} progress: ${url.progress.toFixed(0)}% ${url.data}</span></p>`;
+                        urlDisplay = `<p>${url.id} <a href="${url.path}" target="_blank">${url.path}</a> - <span style="color: green;"> http code: ${url.status} progress: ${url.progress}% ${url.data}</span></p>`;
                     }
 
                     container.innerHTML += urlDisplay;
