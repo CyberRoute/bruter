@@ -1,6 +1,6 @@
 [![go build](https://github.com/CyberRoute/bruter/actions/workflows/go.yml/badge.svg?branch=main)](https://github.com/CyberRoute/bruter/actions/workflows/go.yml)
 [![golangci-lint](https://github.com/CyberRoute/bruter/actions/workflows/golangci-lint.yml/badge.svg?branch=main)](https://github.com/CyberRoute/bruter/actions/workflows/golangci-lint.yml)
-
+[![Go Report Card](https://goreportcard.com/badge/github.com/CyberRoute/bruter)](https://goreportcard.com/report/github.com/CyberRoute/bruter)
 
 # Bruter
 Bruter is a simple app that was built as an experiment while learning Go. It is indeed very much inspired by [Xray](https://github.com/evilsocket/xray) git  (but hey not copied ;)). The tooling can be used to test webservers and validate webservers configurations, but not just!
