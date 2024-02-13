@@ -17,16 +17,17 @@ What does it do?
 
 ## Usage
 ```
-   Usage of /tmp/go-build2863756334/b001/exe/main:
-   
+   Usage of /tmp/go-build262560291/b001/exe/concurrency:
   -address string
-    	IP address to bind the web ui server to. (default "127.0.0.1")
+    	IP address to bind the web UI server to. (default "127.0.0.1")
   -dictionary string
     	File to use for enumeration. (default "db/apache-list")
   -domain string
     	domain to scan
+  -extension string
+    	File extension. (default "js")
   -shodan string
-    	shadan api key
+    	shodan API key
   -verbose
     	Verbosity
 ```

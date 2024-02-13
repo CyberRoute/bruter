@@ -3,16 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"math"
-	"net/http"
-	"os"
-	"strings"
-	"sync"
-	"syscall"
-	"time"
-
-	"os/signal"
-
 	"github.com/CyberRoute/bruter/pkg/config"
 	"github.com/CyberRoute/bruter/pkg/fuzzer"
 	"github.com/CyberRoute/bruter/pkg/handlers"
@@ -23,6 +13,14 @@ import (
 	"github.com/fatih/color"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"math"
+	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
 )
 
 type workerContext struct {
@@ -42,6 +40,7 @@ var (
 	Domain     = flag.String("domain", "", "domain to scan")
 	Apikey     = flag.String("shodan", "", "shodan API key")
 	Address    = flag.String("address", "127.0.0.1", "IP address to bind the web UI server to.")
+	Extension  = flag.String("extension", "js", "File extension.")
 	Dictionary = flag.String("dictionary", "db/apache-list", "File to use for enumeration.")
 	Verbose    = flag.Bool("verbose", false, "Verbosity")
 )
@@ -137,7 +136,7 @@ func createQueue(mu *sync.Mutex, domain string, list []string, shift, total int,
 
 	for index, payload := range list {
 		modifiedIndex := index + shift
-		payload = strings.ReplaceAll(payload, "%EXT%", "js")
+		payload = strings.ReplaceAll(payload, "%EXT%", *Extension)
 		progress := 100 * float32(modifiedIndex) / float32(total)
 		progress = float32(math.Round(float64(progress)))
 		queue.Add(async.Job(&workerContext{
