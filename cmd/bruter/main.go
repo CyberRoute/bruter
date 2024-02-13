@@ -8,7 +8,10 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
+
+	"os/signal"
 
 	"github.com/CyberRoute/bruter/pkg/config"
 	"github.com/CyberRoute/bruter/pkg/fuzzer"
@@ -17,6 +20,7 @@ import (
 	"github.com/CyberRoute/bruter/pkg/render"
 	"github.com/alexedwards/scs/v2"
 	"github.com/evilsocket/islazy/async"
+	"github.com/fatih/color"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -49,6 +53,14 @@ func main() {
 		flag.Usage()
 		os.Exit(1)
 	}
+	r := color.New(color.FgRed)
+	signals := make(chan os.Signal, 2)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-signals
+		r.Println("\nINTERRUPTING ...")
+		os.Exit(0)
+	}()
 
 	logger := log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 	app.ZeroLog = &logger
