@@ -81,19 +81,15 @@ func Dirsearch(Mu *sync.Mutex, app *config.AppConfig, domain, path string, progr
 		switch {
 		// 2xx
 		case resp.StatusCode >= 200 && resp.StatusCode < 300:
-			//g.Printf("[%s] [%d] %s\n", now, result.status, result.url)
 			app.ZeroLog.Info().Msg(g.Sprintf("%s => %s", urjoin, resp.Status))
 		// 3xx
 		case resp.StatusCode >= 300 && resp.StatusCode < 400:
-			//b.Printf("[%s] [%d] %s -> %s\n", now, result.status, result.url, result.location)
 			app.ZeroLog.Info().Msg(b.Sprintf("%s => %s", urjoin, resp.Status))
 		// 4xx
 		case resp.StatusCode >= 400 && resp.StatusCode < 500 && resp.StatusCode != 404:
-			//y.Printf("[%s] [%d] %s\n", now, result.status, result.url)
 			app.ZeroLog.Info().Msg(y.Sprintf("%s => %s", urjoin, resp.Status))
 		// 5xx
 		case resp.StatusCode >= 500 && resp.StatusCode < 600:
-			//r.Printf("[%s] [%d] %s\n", now, result.status, result.url)
 			app.ZeroLog.Info().Msg(r.Sprintf("%s => %s", urjoin, resp.Status))
 		}
 
