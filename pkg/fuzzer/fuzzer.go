@@ -39,7 +39,7 @@ func Dirsearch(Mu *sync.Mutex, app *config.AppConfig, domain, path string, progr
 
 	head, err := http.NewRequest("HEAD", url, nil)
 	if err != nil {
-		app.ZeroLog.Error().Err(err).Msgf("Error creating request for URL: %s", urjoin)
+		app.ZeroLog.Error().Err(err).Msgf("Error creating request for URL: %s", url)
 	}
 	head.Header.Set("User-Agent", GetRandomUserAgent())
 
@@ -55,25 +55,25 @@ func Dirsearch(Mu *sync.Mutex, app *config.AppConfig, domain, path string, progr
 
 	resp, err := client.Do(head)
 	if err != nil {
-		app.ZeroLog.Error().Err(err).Msgf("Error performing request for URL: %s", urjoin)
+		app.ZeroLog.Error().Err(err).Msgf("Error performing request for URL: %s", url)
 	}
 	if resp != nil && resp.StatusCode == http.StatusMovedPermanently || resp.StatusCode == http.StatusFound { //status codes 301 302
 		// Add the RedirectPath field to the payload
 		redirectPath := resp.Header.Get("Location")
-		payload := &models.Url{Path: urjoin, Progress: progress, Status: float64(resp.StatusCode), RedirectPath: redirectPath}
+		payload := &models.Url{Path: url, Progress: progress, Status: float64(resp.StatusCode), RedirectPath: redirectPath}
 		payloadBuf := new(bytes.Buffer)
 		err = json.NewEncoder(payloadBuf).Encode(payload)
 		checkError(err)
 
-		dfileHandler(Mu, domain, urjoin, float64(resp.StatusCode), progress, redirectPath)
+		dfileHandler(Mu, domain, url, float64(resp.StatusCode), progress, redirectPath)
 	} else {
 		// For other status codes
-		payload := &models.Url{Path: urjoin, Progress: progress, Status: float64(resp.StatusCode)}
+		payload := &models.Url{Path: url, Progress: progress, Status: float64(resp.StatusCode)}
 		payloadBuf := new(bytes.Buffer)
 		err = json.NewEncoder(payloadBuf).Encode(payload)
 		checkError(err)
 
-		dfileHandler(Mu, domain, urjoin, float64(resp.StatusCode), progress, "")
+		dfileHandler(Mu, domain, url, float64(resp.StatusCode), progress, "")
 	}
 
 	if verbose {
@@ -81,16 +81,16 @@ func Dirsearch(Mu *sync.Mutex, app *config.AppConfig, domain, path string, progr
 		switch {
 		// 2xx
 		case resp.StatusCode >= 200 && resp.StatusCode < 300:
-			app.ZeroLog.Info().Msg(g.Sprintf("%s => %s", urjoin, resp.Status))
+			app.ZeroLog.Info().Msg(g.Sprintf("%s => %s", url, resp.Status))
 		// 3xx
 		case resp.StatusCode >= 300 && resp.StatusCode < 400:
-			app.ZeroLog.Info().Msg(b.Sprintf("%s => %s", urjoin, resp.Status))
+			app.ZeroLog.Info().Msg(b.Sprintf("%s => %s", url, resp.Status))
 		// 4xx
 		case resp.StatusCode >= 400 && resp.StatusCode < 500 && resp.StatusCode != 404:
-			app.ZeroLog.Info().Msg(y.Sprintf("%s => %s", urjoin, resp.Status))
+			app.ZeroLog.Info().Msg(y.Sprintf("%s => %s", url, resp.Status))
 		// 5xx
 		case resp.StatusCode >= 500 && resp.StatusCode < 600:
-			app.ZeroLog.Info().Msg(r.Sprintf("%s => %s", urjoin, resp.Status))
+			app.ZeroLog.Info().Msg(r.Sprintf("%s => %s", url, resp.Status))
 		}
 
 	}
