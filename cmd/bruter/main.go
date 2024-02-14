@@ -42,6 +42,7 @@ var (
 	Address    = flag.String("address", "127.0.0.1", "IP address to bind the web UI server to.")
 	Extension  = flag.String("extension", "js", "File extension.")
 	Dictionary = flag.String("dictionary", "db/apache-list", "File to use for enumeration.")
+	Workers    = flag.Int("workers", 0, "Default is 0, if workers is less than or equal than zero, it will be auto scaled to the number of logical CPUs usable by the current process.")
 	Verbose    = flag.Bool("verbose", false, "Verbosity")
 )
 
@@ -129,7 +130,7 @@ func readDictionary(file *os.File) []string {
 }
 
 func createQueue(mu *sync.Mutex, domain string, list []string, shift, total int, verbose bool) *async.WorkQueue {
-	queue := async.NewQueue(0, func(arg async.Job) {
+	queue := async.NewQueue(*Workers, func(arg async.Job) {
 		ctx := arg.(*workerContext)
 		fuzzer.Dirsearch(ctx.Mu, &app, ctx.Domain, ctx.Path, ctx.Progress, ctx.Verbose)
 	})
