@@ -17,7 +17,7 @@ What does it do?
 
 ## Usage
 ```
-   Usage of /tmp/go-build262560291/b001/exe/concurrency:
+   Usage of /tmp/go-build3838391229/b001/exe/concurrency:
   -address string
     	IP address to bind the web UI server to. (default "127.0.0.1")
   -dictionary string
@@ -30,6 +30,8 @@ What does it do?
     	shodan API key
   -verbose
     	Verbosity
+  -workers int
+    	Default is 0, if workers is less than or equal than zero, it will be auto scaled to the number of logical CPUs usable by the current process.
 ```
 
 ## Running in Docker

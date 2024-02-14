@@ -37,8 +37,8 @@ var app config.AppConfig
 var session *scs.SessionManager
 
 var (
-	Domain     = flag.String("domain", "", "domain to scan")
-	Apikey     = flag.String("shodan", "", "shodan API key")
+	Domain     = flag.String("domain", "", "Domain to scan")
+	Apikey     = flag.String("shodan", "", "Dhodan API key")
 	Address    = flag.String("address", "127.0.0.1", "IP address to bind the web UI server to.")
 	Extension  = flag.String("extension", "js", "File extension.")
 	Dictionary = flag.String("dictionary", "db/apache-list", "File to use for enumeration.")
