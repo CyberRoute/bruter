@@ -108,25 +108,24 @@ func main() {
 	}
 	defer file.Close()
 
-	list := readDictionary(file)
+	linesChan, _, err := fuzzer.Reader(file.Name(), 0)
+	if err != nil {
+		log.Fatal().Err(err).Msg("")
+	}
+
+	list := make([]string, 0)
+	for line := range linesChan {
+		list = append(list, line)
+	}
+
 	total := len(list)
 	shift := 1
-
 	queue := createQueue(&app.Mu, *Domain, list, shift, total, *Verbose)
 
 	queue.WaitDone()
 
 	fmt.Println("\nAll tasks completed, press Ctrl-C to quit.")
 	select {}
-}
-
-func readDictionary(file *os.File) []string {
-	buffer := make([]byte, 500000) // 500K (almost)
-	EOB, err := file.Read(buffer)
-	if err != nil {
-		log.Fatal().Err(err).Msg("")
-	}
-	return strings.Split(string(buffer[:EOB]), "\n")
 }
 
 func createQueue(mu *sync.Mutex, domain string, list []string, shift, total int, verbose bool) *async.WorkQueue {
