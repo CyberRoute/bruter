@@ -31,10 +31,15 @@ type workerContext struct {
 	Verbose  bool
 }
 
+type Statistics struct {
+	Inputs uint64
+}
+
 const portNumber = ":8080"
 
 var app config.AppConfig
 var session *scs.SessionManager
+var stats Statistics
 
 var (
 	Domain     = flag.String("domain", "", "Domain to scan")
@@ -59,6 +64,7 @@ func main() {
 	go func() {
 		<-signals
 		r.Println("\nINTERRUPTING ...")
+		fmt.Printf("Wordlist of %d paths\n", stats.Inputs)
 		os.Exit(0)
 	}()
 
@@ -115,6 +121,7 @@ func main() {
 
 	list := make([]string, 0)
 	for line := range linesChan {
+		stats.Inputs++
 		list = append(list, line)
 	}
 
@@ -124,7 +131,8 @@ func main() {
 
 	queue.WaitDone()
 
-	fmt.Println("\nAll tasks completed, press Ctrl-C to quit.")
+	logger.Info().Msg(fmt.Sprintf("Wordlist of %d paths", stats.Inputs))
+	logger.Info().Msg("All tasks completed, press Ctrl-C to quit.")
 	select {}
 }
 
