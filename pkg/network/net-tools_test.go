@@ -16,7 +16,7 @@ func TestResolveByName(t *testing.T) {
 		{
 			name:   "valid domain",
 			domain: "example.com",
-			want:   "93.184.216.34",
+			want:   "93.184.215.14",
 		},
 		{
 			name:    "invalid domain",
