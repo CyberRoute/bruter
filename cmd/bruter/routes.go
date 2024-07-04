@@ -59,7 +59,7 @@ func routes(app *config.AppConfig) http.Handler {
 			checkError(err)
 		},
 		func() {
-			headers, err = sh.Head("https://" + app.Domain)
+			headers, err = sh.Head("http://" + app.Domain)
 			checkError(err)
 		},
 		func() {

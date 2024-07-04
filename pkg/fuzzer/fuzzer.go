@@ -84,7 +84,7 @@ func Dirsearch(Mu *sync.Mutex, app *config.AppConfig, domain, path string, progr
 			app.ZeroLog.Info().Msg(g.Sprintf("%s => %s", url, resp.Status))
 		// 3xx
 		case resp.StatusCode >= 300 && resp.StatusCode < 400:
-			app.ZeroLog.Info().Msg(b.Sprintf("%s => %s", url, resp.Status))
+			app.ZeroLog.Info().Msg(b.Sprintf("%s => %s", url, resp.Header.Get("Location")))
 		// 4xx
 		case resp.StatusCode >= 400 && resp.StatusCode < 500 && resp.StatusCode != 404:
 			app.ZeroLog.Info().Msg(y.Sprintf("%s => %s", url, resp.Status))

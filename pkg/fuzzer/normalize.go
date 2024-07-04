@@ -3,7 +3,6 @@ package fuzzer
 import (
 	"errors"
 	"net/url"
-	"strings"
 )
 
 func NormalizeURL(base string) (string, error) {
@@ -20,11 +19,6 @@ func NormalizeURL(base string) (string, error) {
 	// Ensure the scheme is set to either "http" or "https"
 	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
 		parsedURL.Scheme = "http"
-	}
-
-	// Ensure there's a trailing slash in the path
-	if parsedURL.Path == "" || !strings.HasSuffix(parsedURL.Path, "/") {
-		parsedURL.Path += "/"
 	}
 
 	// Update the original string
