@@ -10,6 +10,7 @@ import (
 	"os"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/CyberRoute/bruter/pkg/config"
 	"github.com/CyberRoute/bruter/pkg/models"
@@ -35,11 +36,13 @@ func Dirsearch(Mu *sync.Mutex, app *config.AppConfig, domain, path string, progr
 	url, err := NormalizeURL(urjoin)
 	if err != nil {
 		app.ZeroLog.Error().Err(err).Msgf("Error parsing URL: %s", urjoin)
+		return
 	}
 
 	head, err := http.NewRequest("HEAD", url, nil)
 	if err != nil {
 		app.ZeroLog.Error().Err(err).Msgf("Error creating request for URL: %s", url)
+		return
 	}
 	head.Header.Set("User-Agent", GetRandomUserAgent())
 
@@ -53,11 +56,40 @@ func Dirsearch(Mu *sync.Mutex, app *config.AppConfig, domain, path string, progr
 			return http.ErrUseLastResponse
 		}}
 
-	resp, err := client.Do(head)
-	if err != nil {
-		app.ZeroLog.Error().Err(err).Msgf("Error performing request for URL: %s", url)
+	var resp *http.Response
+
+	// Exponential backoff parameters
+	maxRetries := 5
+	backoff := time.Second
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		resp, err = client.Do(head)
+		if err != nil {
+			app.ZeroLog.Error().Err(err).Msgf("Error performing request for URL: %s", url)
+			return
+		}
+
+		if resp.StatusCode == 429 {
+			retryAfter := resp.Header.Get("Retry-After")
+			retryDelay, _ := time.ParseDuration(fmt.Sprintf("%ss", retryAfter))
+			if retryDelay == 0 {
+				retryDelay = backoff
+			}
+			app.ZeroLog.Warn().Msgf("Rate limit exceeded. Retrying after %s", retryDelay)
+			time.Sleep(retryDelay)
+			backoff *= 2
+			continue
+		} else {
+			break
+		}
 	}
-	if resp != nil && resp.StatusCode == http.StatusMovedPermanently || resp.StatusCode == http.StatusFound { //status codes 301 302
+
+	if resp == nil {
+		app.ZeroLog.Error().Msg("Failed to get a valid response")
+		return
+	}
+
+	if resp.StatusCode == http.StatusMovedPermanently || resp.StatusCode == http.StatusFound { //status codes 301 302
 		// Add the RedirectPath field to the payload
 		redirectPath := resp.Header.Get("Location")
 		payload := &models.Url{Path: url, Progress: progress, Status: float64(resp.StatusCode), RedirectPath: redirectPath}
