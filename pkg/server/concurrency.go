@@ -1,8 +1,6 @@
-package main
+package server
 
-import (
-	"sync"
-)
+import "sync"
 
 func RunConcurrently(tasks ...func()) {
 	var wg sync.WaitGroup

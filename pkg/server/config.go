@@ -1,40 +1,45 @@
-package main
+package server
 
 import (
 	"crypto/tls"
-	"html/template"
-	"net/http"
-
 	"github.com/CyberRoute/bruter/pkg/config"
 	"github.com/CyberRoute/bruter/pkg/grabber"
-	"github.com/CyberRoute/bruter/pkg/handlers"
 	"github.com/CyberRoute/bruter/pkg/models"
 	"github.com/CyberRoute/bruter/pkg/network"
 	"github.com/CyberRoute/bruter/pkg/shodan"
 	"github.com/CyberRoute/bruter/pkg/ssl"
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
+	"html/template"
+	"net/http"
 )
 
-func checkError(err error) {
-	if err != nil {
-		app.ZeroLog.Error().Err(err).Msg("")
+type ConfigServer struct {
+	App *config.AppConfig
+}
+
+func NewConfigServer(app *config.AppConfig) *ConfigServer {
+	return &ConfigServer{
+		App: app,
 	}
 }
 
-func routes(app *config.AppConfig) http.Handler {
-	mux := chi.NewRouter()
+func (sc *ConfigServer) checkError(err error) {
+	if err != nil {
+		sc.App.ZeroLog.Error().Err(err).Msg("")
+	}
+}
 
-	mux.Use(middleware.Recoverer)
-	mux.Use(SessionLoad)
-
+// RunConfiguration runs for NewServer
+func (sc *ConfigServer) RunConfiguration(app *config.AppConfig) (models.HomeArgs, models.TemplateData, models.TemplateData) {
 	ipv4, err := network.ResolveByName(app.Domain)
-	checkError(err)
+	sc.checkError(err)
+
 	ipv6, err := network.ResolveByNameipv6(app.Domain)
-	checkError(err)
+	sc.checkError(err)
+
 	customTransport := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
+
 	client := &http.Client{Transport: customTransport}
 	sh := shodan.NewClient(client, ipv4, app.ShodanAPIKey)
 
@@ -56,23 +61,23 @@ func routes(app *config.AppConfig) http.Handler {
 	RunConcurrently(
 		func() {
 			hostinfo, err = sh.HostInfo(app)
-			checkError(err)
+			sc.checkError(err)
 		},
 		func() {
 			headers, err = sh.Head("http://" + app.Domain)
-			checkError(err)
+			sc.checkError(err)
 		},
 		func() {
 			mx_records, err = network.FindMX(app.Domain)
-			checkError(err)
+			sc.checkError(err)
 		},
 		func() {
 			whoisinfo, err = network.WhoisLookup(app.Domain)
-			checkError(err)
+			sc.checkError(err)
 		},
 		func() {
 			sslinfo, err = ssl.FetchCrtData(app.Domain)
-			checkError(err)
+			sc.checkError(err)
 		},
 	)
 
@@ -80,30 +85,31 @@ func routes(app *config.AppConfig) http.Handler {
 	RunConcurrently(
 		func() {
 			mysql, err = grabber.GrabMysqlBanner(app.Domain, hostinfo.Ports)
-			checkError(err)
+			sc.checkError(err)
 		},
 		func() {
 			ssh, err = grabber.GrabSSHBanner(app.Domain, hostinfo.Ports)
-			checkError(err)
+			sc.checkError(err)
 		},
 		func() {
 			ftp, err = grabber.GrabFTPBanner(app.Domain, hostinfo.Ports)
-			checkError(err)
+			sc.checkError(err)
 		},
 		func() {
 			smtp, err = grabber.GrabSMTPBanner(app.Domain, hostinfo.Ports)
-			checkError(err)
+			sc.checkError(err)
 		},
 		func() {
 			pop, err = grabber.GrabPOPBanner(app.Domain, hostinfo.Ports)
-			checkError(err)
+			sc.checkError(err)
 		},
 		func() {
 			irc, err = grabber.GrabIRCBanner(app.Domain, hostinfo.Ports)
-			checkError(err)
+			sc.checkError(err)
 		},
 	)
-	homeargs := models.HomeArgs{
+
+	homeArgs := models.HomeArgs{
 		Ipv4:    ipv4,
 		Ipv6:    ipv6,
 		Host:    hostinfo,
@@ -117,20 +123,13 @@ func routes(app *config.AppConfig) http.Handler {
 		Irc:     irc,
 	}
 
-	sslargs := models.TemplateData{
+	sslArgs := models.TemplateData{
 		SSLInfo: sslinfo,
 	}
 
-	whoisargs := models.TemplateData{
+	whoIsArgs := models.TemplateData{
 		WhoisInfo: whoisinfo,
 	}
 
-	mux.Get("/", handlers.Repo.Home(homeargs))
-	mux.Get("/ssl", handlers.Repo.SSLInfo(sslargs))
-	mux.Get("/whois", handlers.Repo.WhoisInfo(whoisargs))
-	mux.Get("/consumer", handlers.Repo.Consumer)
-	fileServer := http.FileServer(http.Dir("./static/"))
-	mux.Handle("/static/*", http.StripPrefix("/static", fileServer))
-
-	return mux
+	return homeArgs, sslArgs, whoIsArgs
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/CyberRoute/bruter/pkg/handlers"
 	"github.com/CyberRoute/bruter/pkg/network"
 	"github.com/CyberRoute/bruter/pkg/render"
+	"github.com/CyberRoute/bruter/pkg/server"
 	"github.com/alexedwards/scs/v2"
 	"github.com/evilsocket/islazy/async"
 	"github.com/fatih/color"
@@ -98,7 +99,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:    portNumber,
-		Handler: routes(&app),
+		Handler: server.NewServer(&app),
 	}
 
 	go func() {
