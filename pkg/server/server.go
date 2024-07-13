@@ -14,7 +14,9 @@ func NewServer(app *config.AppConfig) *chi.Mux {
 	mux.Use(middleware.Recoverer)
 	mux.Use(midd.SessionLoad)
 
-	homeArgs, sslArgs, whoIsArgs := RunConfiguration(app)
+	sc := NewConfigServer(app)
+
+	homeArgs, sslArgs, whoIsArgs := sc.RunConfiguration(app)
 
 	routes.Routes(mux, homeArgs, sslArgs, whoIsArgs)
 
