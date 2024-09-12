@@ -1,13 +1,11 @@
 package middleware
 
 import (
-	"github.com/alexedwards/scs/v2"
 	"net/http"
+	"github.com/CyberRoute/bruter/pkg/config"
 )
 
-var session *scs.SessionManager
-
 // SessionLoad loads and saves the session on every request
-func SessionLoad(next http.Handler) http.Handler {
-	return session.LoadAndSave(next)
+func SessionLoad(app *config.AppConfig, next http.Handler) http.Handler {
+	return app.Session.LoadAndSave(next)
 }
