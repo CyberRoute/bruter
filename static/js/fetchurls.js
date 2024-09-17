@@ -12,10 +12,10 @@ function fetchUrls() {
             // Clear loading message and append data
             container.innerHTML = "";
             data.Urls.forEach(url => {
-				// Update the speedElement for each URL
-				bar.style.width = url.progress + "%";
-				speedElement.innerText = url.data;
-				bar.innerText = url.progress.toFixed(0) + "%";
+                // Update the speedElement for each URL
+                bar.style.width = url.progress + "%";
+                speedElement.innerText = url.data;
+                bar.innerText = url.progress.toFixed(0) + "%";
                 if (url.status === 200) {
                     let urlDisplay;
                     // For other status codes (200), use the original path

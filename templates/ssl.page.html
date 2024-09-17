@@ -1,29 +1,30 @@
 {{template "base" .}}
 
 {{define "content"}}
-    <div class="container-fluid">
-        <div class="row">
-            <div class="col">
-                {{if .SSLInfo}}
-                {{range .SSLInfo}}
-                <div class="card bg-dark text-light mb-4">
-                    <div class="card-body">
-                        <div class="card-header bg-success">
-                            <h5><i class="bi bi-search"></i> crt.sh ID: <a href="https://crt.sh/?id={{printf "%0.0f" .id}}" target="_blank" style="color: #003366;">{{printf "%0.0f" .id}}</a></h5>
-                        </div>
-                        <div class="mt-3">
-                            <p class="text-break"><b>Common Name:</b> {{.common_name}}</p>
-                            <p class="text-break"><b>Matching Identities:</b> {{.name_value}}</p>
-                            <p class="text-break"><b>Issuer Name:</b> {{.issuer_name}}</p>
-                        </div>
+<div class="container-fluid">
+    <div class="row">
+        <div class="col">
+            {{if .SSLInfo}}
+            {{range .SSLInfo}}
+            <div class="card bg-dark text-light mb-4">
+                <div class="card-body">
+                    <div class="card-header bg-success">
+                        <h5><i class="bi bi-search"></i> crt.sh ID: <a href="https://crt.sh/?id={{printf " %0.0f" .id}}"
+                                target="_blank" style="color: #003366;">{{printf "%0.0f" .id}}</a></h5>
+                    </div>
+                    <div class="mt-3">
+                        <p class="text-break"><b>Common Name:</b> {{.common_name}}</p>
+                        <p class="text-break"><b>Matching Identities:</b> {{.name_value}}</p>
+                        <p class="text-break"><b>Issuer Name:</b> {{.issuer_name}}</p>
                     </div>
                 </div>
-                {{else}}
-                <p>No SSL information available for this domain.</p>
-                {{end}}
             </div>
+            {{else}}
+            <p>No SSL information available for this domain.</p>
+            {{end}}
         </div>
     </div>
+</div>
 {{end}}
 
 {{end}}
