@@ -42,19 +42,60 @@ func TestFetchCrtDataRetriesTransient(t *testing.T) {
 	}
 }
 
-// TestFetchCrtDataExhaustsRetries verifies a persistent 503 fails with a clear error.
+// TestFetchCrtDataExhaustsRetries verifies that when both crt.sh (persistent
+// 503) and the certspotter fallback fail, a clear combined error is returned.
 func TestFetchCrtDataExhaustsRetries(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
-	defer server.Close()
+	defer down.Close()
 
-	origURL, origBackoff := CrtBaseURL, initialBackoff
-	CrtBaseURL = server.URL
+	origCrt, origCS, origBackoff := CrtBaseURL, CertSpotterBaseURL, initialBackoff
+	CrtBaseURL = down.URL
+	CertSpotterBaseURL = down.URL
 	initialBackoff = time.Millisecond
-	defer func() { CrtBaseURL, initialBackoff = origURL, origBackoff }()
+	defer func() { CrtBaseURL, CertSpotterBaseURL, initialBackoff = origCrt, origCS, origBackoff }()
 
 	if _, err := FetchCrtData("example.com"); err == nil {
 		t.Fatal("expected error after exhausting retries, got nil")
+	}
+}
+
+// TestFetchCrtDataFallsBackToCertSpotter verifies that when crt.sh is down, the
+// certspotter fallback is used and its response is mapped to the template shape.
+func TestFetchCrtDataFallsBackToCertSpotter(t *testing.T) {
+	crtDown := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer crtDown.Close()
+
+	certSpotter := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"id":"123","dns_names":["example.com","www.example.com"],"issuer":{"name":"CN=Test CA"}}]`))
+	}))
+	defer certSpotter.Close()
+
+	origCrt, origCS, origBackoff := CrtBaseURL, CertSpotterBaseURL, initialBackoff
+	CrtBaseURL = crtDown.URL
+	CertSpotterBaseURL = certSpotter.URL
+	initialBackoff = time.Millisecond
+	defer func() { CrtBaseURL, CertSpotterBaseURL, initialBackoff = origCrt, origCS, origBackoff }()
+
+	data, err := FetchCrtData("example.com")
+	if err != nil {
+		t.Fatalf("expected certspotter fallback to succeed, got %v", err)
+	}
+	if len(data) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(data))
+	}
+	rec := data[0]
+	if rec["common_name"] != "example.com" {
+		t.Errorf("common_name = %v, want example.com", rec["common_name"])
+	}
+	if rec["issuer_name"] != "CN=Test CA" {
+		t.Errorf("issuer_name = %v, want CN=Test CA", rec["issuer_name"])
+	}
+	if id, ok := rec["id"].(float64); !ok || id != 123 {
+		t.Errorf("id = %v (%T), want float64 123", rec["id"], rec["id"])
 	}
 }
