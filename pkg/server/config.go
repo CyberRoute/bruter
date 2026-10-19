@@ -7,8 +7,6 @@ import (
 	"github.com/CyberRoute/bruter/pkg/models"
 	"github.com/CyberRoute/bruter/pkg/network"
 	"github.com/CyberRoute/bruter/pkg/shodan"
-	"github.com/CyberRoute/bruter/pkg/ssl"
-	"html/template"
 	"net/http"
 )
 
@@ -51,14 +49,12 @@ func (sc *ConfigServer) RunConfiguration(app *config.AppConfig) (models.HomeArgs
 		hostinfo   shodan.Response
 		headers    map[string]interface{}
 		mx_records map[string]uint16
-		whoisinfo  template.HTML
 		mysql      string
 		ssh        string
 		ftp        string
 		smtp       string
 		pop        string
 		irc        string
-		sslinfo    []map[string]interface{}
 	)
 
 	// Step 1: Execute functions that don't depend on hostinfo.Ports
@@ -82,15 +78,10 @@ func (sc *ConfigServer) RunConfiguration(app *config.AppConfig) (models.HomeArgs
 				sc.App.ZeroLog.Debug().Msgf("no MX records for %s", app.Domain)
 			}
 		},
-		func() {
-			whoisinfo, err = network.WhoisLookup(app.Domain)
-			sc.checkError(err)
-		},
-		func() {
-			sslinfo, err = ssl.FetchCrtData(app.Domain)
-			sc.checkError(err)
-		},
 	)
+	// Note: SSL (crt.sh) and WHOIS data are fetched lazily by their handlers on
+	// each request, so they are intentionally not gathered here — doing so would
+	// block the UI from starting while those external services are queried.
 
 	// Step 2: Execute functions that depend on hostinfo.Ports
 	RunConcurrently(
@@ -134,13 +125,7 @@ func (sc *ConfigServer) RunConfiguration(app *config.AppConfig) (models.HomeArgs
 		Irc:     irc,
 	}
 
-	sslArgs := models.TemplateData{
-		SSLInfo: sslinfo,
-	}
-
-	whoIsArgs := models.TemplateData{
-		WhoisInfo: whoisinfo,
-	}
-
-	return homeArgs, sslArgs, whoIsArgs
+	// SSL and WHOIS args are empty here; their handlers populate the data per
+	// request (see handlers.SSLInfo / handlers.WhoisInfo).
+	return homeArgs, models.TemplateData{}, models.TemplateData{}
 }
