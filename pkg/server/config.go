@@ -75,8 +75,12 @@ func (sc *ConfigServer) RunConfiguration(app *config.AppConfig) (models.HomeArgs
 			}
 		},
 		func() {
-			mx_records, err = network.FindMX(app.Domain)
-			sc.checkError(err)
+			var mxErr error
+			mx_records, mxErr = network.FindMX(app.Domain)
+			if mxErr != nil {
+				// Most hosts (non-mail subdomains) have no MX records; not alarming.
+				sc.App.ZeroLog.Debug().Msgf("no MX records for %s", app.Domain)
+			}
 		},
 		func() {
 			whoisinfo, err = network.WhoisLookup(app.Domain)

@@ -17,6 +17,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -60,6 +61,9 @@ func main() {
 		flag.Usage()
 		os.Exit(1)
 	}
+	// Accept a full URL (e.g. https://host/path) and reduce it to the bare host,
+	// since the resolver and scanner expect a hostname.
+	*Domain = sanitizeDomain(*Domain)
 	r := color.New(color.FgRed)
 	signals := make(chan os.Signal, 2)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
@@ -140,6 +144,26 @@ func main() {
 	logger.Info().Msg(fmt.Sprintf("Wordlist of %d paths", stats.Inputs))
 	logger.Info().Msg("All tasks completed, press Ctrl-C to quit.")
 	select {}
+}
+
+// sanitizeDomain reduces a user-supplied target to a bare hostname. It accepts
+// full URLs ("https://host/path"), host:port, and trailing paths.
+func sanitizeDomain(input string) string {
+	input = strings.TrimSpace(input)
+	if strings.Contains(input, "://") {
+		if u, err := url.Parse(input); err == nil && u.Hostname() != "" {
+			return u.Hostname()
+		}
+	}
+	// Strip any path component.
+	if i := strings.IndexByte(input, '/'); i >= 0 {
+		input = input[:i]
+	}
+	// Strip a port if present.
+	if host, _, err := net.SplitHostPort(input); err == nil {
+		input = host
+	}
+	return input
 }
 
 func createQueue(mu *sync.Mutex, domain string, list []string, shift, total int, verbose bool) *async.WorkQueue {
