@@ -15,6 +15,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"math"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -36,7 +37,7 @@ type Statistics struct {
 	Inputs uint64
 }
 
-const portNumber = ":8080"
+const port = "8080"
 
 var app config.AppConfig
 var session *scs.SessionManager
@@ -97,15 +98,16 @@ func main() {
 	handlers.NewHandlers(repo)
 	render.NewTemplates(&app)
 
+	listenAddr := net.JoinHostPort(*Address, port)
 	srv := &http.Server{
-		Addr:    portNumber,
+		Addr:    listenAddr,
 		Handler: server.NewServer(&app),
 	}
 
 	go func() {
-		logger.Info().Msg(fmt.Sprintf("UI running on http://%s%s/", *Address, portNumber))
-		if err := srv.ListenAndServe(); err != nil {
-			panic(err)
+		logger.Info().Msg(fmt.Sprintf("UI running on http://%s/", listenAddr))
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Fatal().Err(err).Msg("server failed")
 		}
 	}()
 

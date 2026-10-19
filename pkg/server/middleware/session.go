@@ -1,8 +1,8 @@
 package middleware
 
 import (
-	"net/http"
 	"github.com/CyberRoute/bruter/pkg/config"
+	"net/http"
 )
 
 // SessionLoad loads and saves the session on every request

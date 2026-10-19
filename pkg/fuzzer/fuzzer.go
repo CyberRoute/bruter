@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"sort"
@@ -31,6 +33,36 @@ var (
 	b = color.New(color.FgBlue)
 )
 
+// client is shared across all Dirsearch calls so that connections are pooled
+// and reused. Certificates are not verified (scanning use case) and redirects
+// are not followed.
+var client = &http.Client{
+	Transport: &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // scanner probes untrusted hosts by design
+	},
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
+}
+
+// parseRetryAfter interprets a Retry-After header value, which may be either a
+// number of seconds or an HTTP-date. It returns 0 if the value is absent or
+// unparseable.
+func parseRetryAfter(v string) time.Duration {
+	if v == "" {
+		return 0
+	}
+	if secs, err := time.ParseDuration(v + "s"); err == nil {
+		return secs
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		if d := time.Until(t); d > 0 {
+			return d
+		}
+	}
+	return 0
+}
+
 func Dirsearch(Mu *sync.Mutex, app *config.AppConfig, domain, path string, progress float32, verbose bool) {
 	urjoin := domain + path
 	url, err := NormalizeURL(urjoin)
@@ -46,16 +78,6 @@ func Dirsearch(Mu *sync.Mutex, app *config.AppConfig, domain, path string, progr
 	}
 	head.Header.Set("User-Agent", GetRandomUserAgent())
 
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-	// Do not verify certificates, do not follow redirects.
-	client := &http.Client{
-		Transport: tr,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		}}
-
 	var resp *http.Response
 
 	// Exponential backoff parameters
@@ -65,29 +87,42 @@ func Dirsearch(Mu *sync.Mutex, app *config.AppConfig, domain, path string, progr
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		resp, err = client.Do(head)
 		if err != nil {
+			// Only transient (timeout) errors are worth retrying. Connection
+			// refused, DNS failures and the like will not recover, so fail fast
+			// for this path instead of burning the full backoff schedule on a
+			// dead host (otherwise every path retries maxRetries times).
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() && attempt < maxRetries {
+				app.ZeroLog.Warn().Err(err).Msgf("Timeout for URL: %s, retrying (attempt %d/%d)", url, attempt, maxRetries)
+				time.Sleep(backoff)
+				backoff *= 2
+				continue
+			}
 			app.ZeroLog.Error().Err(err).Msgf("Error performing request for URL: %s", url)
 			return
 		}
 
-		if resp.StatusCode == 429 {
-			retryAfter := resp.Header.Get("Retry-After")
-			retryDelay, _ := time.ParseDuration(fmt.Sprintf("%ss", retryAfter))
+		if resp.StatusCode == http.StatusTooManyRequests {
+			retryDelay := parseRetryAfter(resp.Header.Get("Retry-After"))
 			if retryDelay == 0 {
 				retryDelay = backoff
 			}
+			// Drain and close the body before retrying so the connection can be reused.
+			_ = resp.Body.Close()
+			resp = nil
 			app.ZeroLog.Warn().Msgf("Rate limit exceeded. Retrying after %s", retryDelay)
 			time.Sleep(retryDelay)
 			backoff *= 2
 			continue
-		} else {
-			break
 		}
+		break
 	}
 
 	if resp == nil {
-		app.ZeroLog.Error().Msg("Failed to get a valid response")
+		app.ZeroLog.Error().Msgf("Failed to get a valid response for URL: %s", url)
 		return
 	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusMovedPermanently || resp.StatusCode == http.StatusFound { //status codes 301 302
 		// Add the RedirectPath field to the payload

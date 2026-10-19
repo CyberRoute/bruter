@@ -44,13 +44,10 @@ func WhoisLookup(domain string) (template.HTML, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to perform WHOIS lookup: %v", err)
 	}
-	lines := strings.Split(result, "\n")
-	for i, line := range lines {
-		parts := strings.SplitN(line, ":", 2)
-		if len(parts) == 2 {
-			lines[i] = parts[0] + ":" + parts[1]
-		}
-	}
-	result = strings.Join(lines, "<br>")
-	return template.HTML(result), nil
+	// WHOIS output is attacker-influenceable (registration fields of a malicious
+	// domain), so escape it before marking it safe HTML, then turn newlines into
+	// <br> for display.
+	escaped := template.HTMLEscapeString(result)
+	escaped = strings.ReplaceAll(escaped, "\n", "<br>")
+	return template.HTML(escaped), nil
 }
