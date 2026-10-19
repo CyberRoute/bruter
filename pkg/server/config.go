@@ -34,7 +34,11 @@ func (sc *ConfigServer) RunConfiguration(app *config.AppConfig) (models.HomeArgs
 	sc.checkError(err)
 
 	ipv6, err := network.ResolveByNameipv6(app.Domain)
-	sc.checkError(err)
+	if err != nil {
+		// Missing AAAA record is common and not an error worth alarming about.
+		sc.App.ZeroLog.Debug().Msgf("no IPv6 address for %s", app.Domain)
+		ipv6 = "not found"
+	}
 
 	customTransport := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
@@ -64,8 +68,11 @@ func (sc *ConfigServer) RunConfiguration(app *config.AppConfig) (models.HomeArgs
 			sc.checkError(err)
 		},
 		func() {
-			headers, err = sh.Head("http://" + app.Domain)
-			sc.checkError(err)
+			var herr error
+			headers, herr = sh.Head(app.Scheme + "://" + app.Domain)
+			if herr != nil {
+				sc.App.ZeroLog.Warn().Err(herr).Msg("could not grab HTTP headers from target")
+			}
 		},
 		func() {
 			mx_records, err = network.FindMX(app.Domain)

@@ -78,6 +78,9 @@ func main() {
 	}
 	logger.Info().Msg(fmt.Sprintf("Scanning IP %s %s", IP, "OK"))
 
+	app.Scheme = network.DetectScheme(*Domain)
+	logger.Info().Msgf("Using %s:// to probe %s", app.Scheme, *Domain)
+
 	app.InProduction = false
 	session = scs.New()
 	session.Lifetime = 24 * time.Hour

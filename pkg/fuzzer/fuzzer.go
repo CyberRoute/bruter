@@ -65,7 +65,7 @@ func parseRetryAfter(v string) time.Duration {
 
 func Dirsearch(Mu *sync.Mutex, app *config.AppConfig, domain, path string, progress float32, verbose bool) {
 	urjoin := domain + path
-	url, err := NormalizeURL(urjoin)
+	url, err := NormalizeURL(urjoin, app.Scheme)
 	if err != nil {
 		app.ZeroLog.Error().Err(err).Msgf("Error parsing URL: %s", urjoin)
 		return
