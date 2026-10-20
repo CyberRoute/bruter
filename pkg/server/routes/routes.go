@@ -1,17 +1,30 @@
 package routes
 
 import (
+	"net/http"
+
 	"github.com/CyberRoute/bruter/pkg/handlers"
 	"github.com/CyberRoute/bruter/pkg/models"
+	"github.com/CyberRoute/bruter/web"
 	"github.com/go-chi/chi/v5"
-	"net/http"
 )
 
-func Routes(mux *chi.Mux, homeArgs models.HomeArgs, sslArgs, whoIsArgs models.TemplateData) {
-	mux.Get("/", handlers.Repo.Home(homeArgs))
-	mux.Get("/ssl", handlers.Repo.SSLInfo(sslArgs))
-	mux.Get("/whois", handlers.Repo.WhoisInfo(whoIsArgs))
+// Routes wires the JSON API consumed by the embedded React UI and serves the
+// SPA itself for every other path. The legacy server-rendered template routes
+// have been replaced by the React dashboard.
+func Routes(mux *chi.Mux, homeArgs models.HomeArgs) {
+	// JSON API.
+	mux.Get("/api/host", handlers.Repo.HostAPI(homeArgs))
+	mux.Get("/api/ssl", handlers.Repo.SSLAPI)
+	mux.Get("/api/whois", handlers.Repo.WhoisAPI)
+
+	// Live directory-fuzzing feed (polled by the dashboard).
 	mux.Get("/consumer", handlers.Repo.Consumer)
-	fileServer := http.FileServer(http.Dir("./static/"))
-	mux.Handle("/static/*", http.StripPrefix("/static", fileServer))
+
+	// Embedded React single-page app (serves "/", "/ssl", "/whois", assets).
+	spa := web.Handler()
+	mux.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		spa.ServeHTTP(w, r)
+	})
+	mux.Handle("/*", spa)
 }

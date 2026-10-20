@@ -15,9 +15,9 @@ func NewServer(app *config.AppConfig) *chi.Mux {
 
 	sc := NewConfigServer(app)
 
-	homeArgs, sslArgs, whoIsArgs := sc.RunConfiguration(app)
+	homeArgs, _, _ := sc.RunConfiguration(app)
 
-	routes.Routes(mux, homeArgs, sslArgs, whoIsArgs)
+	routes.Routes(mux, homeArgs)
 
 	return mux
 }

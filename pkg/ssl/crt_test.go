@@ -1,11 +1,9 @@
-package ssl_test
+package ssl
 
 import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/CyberRoute/bruter/pkg/ssl"
 )
 
 func TestFetchCrtData(t *testing.T) {
@@ -18,12 +16,12 @@ func TestFetchCrtData(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	// Point the fetcher at the mock server instead of the live crt.sh service.
-	orig := ssl.CrtBaseURL
-	ssl.CrtBaseURL = mockServer.URL
-	defer func() { ssl.CrtBaseURL = orig }()
+	// Isolate all other sources (concurrent merge would otherwise hit the real
+	// network) and point crt.sh at the mock server.
+	defer isolateSources()()
+	CrtBaseURL = mockServer.URL
 
-	data, err := ssl.FetchCrtData("example.com")
+	data, err := FetchCrtData("example.com")
 	if err != nil {
 		t.Fatalf("Failed to fetch data: %v", err)
 	}

@@ -2,6 +2,9 @@
 [![golangci-lint](https://github.com/CyberRoute/bruter/actions/workflows/golangci-lint.yml/badge.svg?branch=main)](https://github.com/CyberRoute/bruter/actions/workflows/golangci-lint.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/CyberRoute/bruter)](https://goreportcard.com/report/github.com/CyberRoute/bruter)
 
+<div align="center">
+    <img src="img/bruter-logo-transparent.png" width="400px"/>
+</div>
 # Bruter
 Bruter is a simple app that was built as an experiment while learning Go. It is indeed very much inspired by [Xray](https://github.com/evilsocket/xray) git  (but hey not copied ;)). The tooling can be used to test webservers and validate webservers configurations, but not just!
 
@@ -34,7 +37,45 @@ What does it do?
     	Default is 0, if workers is less than or equal than zero, it will be auto scaled to the number of logical CPUs usable by the current process.
 ```
 
+## Web UI
+The presentation layer is a React single-page app (Vite + TypeScript + Tailwind)
+that lives in [`web/`](web/) and is **embedded into the Go binary** via `go:embed`.
+The Go server exposes a small JSON API that the SPA consumes:
+
+| Endpoint | Description |
+| --- | --- |
+| `GET /api/host` | Host/network info, open ports, MX records, grabbed banners, HTTP headers |
+| `GET /api/ssl` | Certificate-transparency records (crt.sh and fallbacks) |
+| `GET /api/whois` | Raw WHOIS record |
+| `GET /consumer` | Live directory-fuzzing feed (polled by the dashboard) |
+
+Because the UI is embedded, you must build `web/dist` before building the Go
+binary. The `Makefile` and `Dockerfile` do this for you:
+
+```
+make ui        # build only the web UI (web/dist)
+make           # build the UI, then test/lint/build the Go binary
+```
+
+Building by hand:
+```
+npm --prefix web ci
+npm --prefix web run build
+go build -o build/bruter ./cmd/bruter
+```
+
+### UI development
+For hot-reload while developing the UI, run the Go server (which serves the API)
+and the Vite dev server side by side — Vite proxies `/api` and `/consumer` to
+`127.0.0.1:8080`:
+```
+go run cmd/bruter/* -domain example.com -shodan [TOKEN]   # API on :8080
+npm --prefix web run dev                                  # UI on :5173
+```
+
 ## Running in Docker
+The Docker build compiles the UI in a Node stage and embeds it into the binary,
+so no extra steps are needed:
 ```
 docker build -t bruter .
 docker run --rm -it -p 8080:8080 bruter -domain example.com -shodan [shodanapikey] -verbose
@@ -62,11 +103,6 @@ docker run --rm -it -p 8080:8080 bruter -domain example.com -shodan [shodanapike
     12:41PM INF http://example.com/.meta => 404 Not Found
     12:41PM INF http://example.com/apache/logs/error.log => 404 Not Found
     12:41PM INF http://example.com/apache/logs/error_log => 404 Not Found   
-
-## Example of the Web UI
-<div align="center">
-    <img src="/img/bruter.png" width="800px"</img> 
-</div>
 
 ## Contribute
 Fork the repo and send PRs

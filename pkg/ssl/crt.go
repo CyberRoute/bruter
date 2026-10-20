@@ -45,6 +45,24 @@ var initialBackoff = time.Second
 // variable so tests can shrink it.
 var overallTimeout = 45 * time.Second
 
+// perSourceTimeout caps how long any single source (including its retries) may
+// run. Because sources are queried concurrently (see FetchCrtData), one slow or
+// rate-limited source cannot delay the others — this just bounds the straggler.
+// Variable for tests.
+var perSourceTimeout = 15 * time.Second
+
+// OTXBaseURL is AlienVault OTX's passive-DNS endpoint, a free no-auth source.
+// Variable so tests can point it at a mock server.
+var OTXBaseURL = "https://otx.alienvault.com"
+
+// HackerTargetBaseURL is HackerTarget's hostsearch endpoint (free, returns CSV).
+// Variable so tests can point it at a mock server.
+var HackerTargetBaseURL = "https://api.hackertarget.com"
+
+// URLScanBaseURL is urlscan.io's search endpoint, a free passive source whose
+// results carry observed hostnames. Variable so tests can override it.
+var URLScanBaseURL = "https://urlscan.io"
+
 // parseRetryAfter interprets a Retry-After header, which may be a number of
 // seconds or an HTTP-date. It returns 0 if absent or unparseable.
 func parseRetryAfter(v string) time.Duration {
@@ -72,37 +90,72 @@ func parseRetryAfter(v string) time.Duration {
 // sources yield hostnames/served SANs rather than full CT history, but
 // returning real data beats returning nothing during an aggregator outage.
 func FetchCrtData(domain string) ([]map[string]interface{}, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), overallTimeout)
-	defer cancel()
+	overallDeadline := time.Now().Add(overallTimeout)
 
 	type source struct {
 		name  string
 		fetch func(context.Context, string) ([]map[string]interface{}, error)
 	}
+	// Independent passive sources. They are queried concurrently and their
+	// results merged, so reliability comes from redundancy: a single source
+	// being down or rate-limited no longer fails (or even delays) the lookup,
+	// and several answering yields a richer union. The mix deliberately spans
+	// different failure modes — CT logs (crt.sh, certspotter), passive DNS
+	// (OTX, HackerTarget, urlscan), hostname feeds (Shodan CTL, crt.name) — plus
+	// a no-third-party floor that reads the certificate the target itself serves.
 	sources := []source{
 		{"crt.sh", fetchCrtSh},
 		{"certspotter", fetchCertSpotter},
+		{"otx", fetchOTX},
+		{"hackertarget", fetchHackerTarget},
+		{"urlscan", fetchURLScan},
 		{"shodan-ctl", fetchShodanCTL},
 		{"crt.name", fetchCrtName},
 		{"live TLS", fetchLiveCert},
 	}
 
-	var errs []string
+	type result struct {
+		name string
+		recs []map[string]interface{}
+		err  error
+	}
+	ch := make(chan result, len(sources))
 	for _, s := range sources {
-		// Stop before starting another source once the overall budget is spent,
-		// so a slow early source cannot starve the whole call of its deadline.
-		if err := ctx.Err(); err != nil {
-			errs = append(errs, fmt.Sprintf("%s: skipped (%v)", s.name, err))
-			break
-		}
-		data, err := s.fetch(ctx, domain)
-		if err == nil {
-			return data, nil
-		}
-		errs = append(errs, fmt.Sprintf("%s: %v", s.name, err))
+		s := s
+		go func() {
+			// Bound each source by its own cap and the overall deadline.
+			budget := time.Until(overallDeadline)
+			if budget > perSourceTimeout {
+				budget = perSourceTimeout
+			}
+			if budget <= 0 {
+				ch <- result{s.name, nil, fmt.Errorf("skipped (deadline reached)")}
+				return
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), budget)
+			defer cancel()
+			recs, err := s.fetch(ctx, domain)
+			ch <- result{s.name, recs, err}
+		}()
 	}
 
-	return nil, fmt.Errorf("certificate lookup failed (%s)", strings.Join(errs, "; "))
+	var all []map[string]interface{}
+	var errs []string
+	for i := 0; i < len(sources); i++ {
+		r := <-ch
+		if r.err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", r.name, r.err))
+			continue
+		}
+		all = append(all, r.recs...)
+	}
+
+	// Only a total outage — every source failing — is an error. Any single
+	// source answering is enough to return data (deduped downstream by the UI).
+	if len(all) == 0 {
+		return nil, fmt.Errorf("certificate lookup failed (%s)", strings.Join(errs, "; "))
+	}
+	return all, nil
 }
 
 // namesToRecords maps a bare list of hostnames (from sources that return names
@@ -355,6 +408,100 @@ func fetchCertSpotter(ctx context.Context, domain string) ([]map[string]interfac
 		})
 	}
 	return data, nil
+}
+
+// otxPassiveDNS is the subset of the AlienVault OTX passive-DNS response we use.
+type otxPassiveDNS struct {
+	PassiveDNS []struct {
+		Hostname string `json:"hostname"`
+	} `json:"passive_dns"`
+}
+
+// fetchOTX queries AlienVault OTX's passive-DNS feed, a free no-auth source that
+// returns hostnames historically observed resolving under the domain.
+func fetchOTX(ctx context.Context, domain string) ([]map[string]interface{}, error) {
+	url := fmt.Sprintf("%s/api/v1/indicators/domain/%s/passive_dns", OTXBaseURL, domain)
+
+	response, err := getWithRetry(ctx, "otx", url, true)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+
+	var payload otxPassiveDNS
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("otx response decode failed: %w", err)
+	}
+	names := make([]string, 0, len(payload.PassiveDNS))
+	for _, e := range payload.PassiveDNS {
+		names = append(names, e.Hostname)
+	}
+	return namesToRecords(names, "AlienVault OTX")
+}
+
+// fetchHackerTarget queries HackerTarget's hostsearch endpoint, which returns a
+// free-tier CSV of "hostname,ip" lines. When the daily quota is exceeded it
+// returns a plaintext error instead, which yields no valid hostnames and is
+// surfaced as a failed source.
+func fetchHackerTarget(ctx context.Context, domain string) ([]map[string]interface{}, error) {
+	url := fmt.Sprintf("%s/hostsearch/?q=%s", HackerTargetBaseURL, domain)
+
+	response, err := getWithRetry(ctx, "hackertarget", url, false)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+
+	var names []string
+	scanner := bufio.NewScanner(response.Body)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		host, _, ok := strings.Cut(line, ",")
+		// Only "host,ip" rows are real results; error prose ("API count
+		// exceeded …") has no comma or embedded spaces and is skipped.
+		if !ok || strings.ContainsAny(host, " \t") || !strings.Contains(host, ".") {
+			continue
+		}
+		names = append(names, host)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("hackertarget response read failed: %w", err)
+	}
+	return namesToRecords(names, "HackerTarget")
+}
+
+// urlScanSearch is the subset of the urlscan.io search response we use.
+type urlScanSearch struct {
+	Results []struct {
+		Page struct {
+			Domain string `json:"domain"`
+		} `json:"page"`
+		Task struct {
+			Domain string `json:"domain"`
+		} `json:"task"`
+	} `json:"results"`
+}
+
+// fetchURLScan queries urlscan.io's free search API, whose indexed scans carry
+// observed hostnames for the domain (page/task domains).
+func fetchURLScan(ctx context.Context, domain string) ([]map[string]interface{}, error) {
+	url := fmt.Sprintf("%s/api/v1/search/?q=domain:%s&size=10000", URLScanBaseURL, domain)
+
+	response, err := getWithRetry(ctx, "urlscan", url, true)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+
+	var payload urlScanSearch
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("urlscan response decode failed: %w", err)
+	}
+	names := make([]string, 0, len(payload.Results)*2)
+	for _, r := range payload.Results {
+		names = append(names, r.Page.Domain, r.Task.Domain)
+	}
+	return namesToRecords(names, "urlscan.io")
 }
 
 // sleepBackoff waits for the current backoff and doubles it, unless this was

@@ -1,0 +1,55 @@
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: radial-gradient(1200px 600px at 80% -10%, #10212b 0%, transparent 55%),
+    radial-gradient(900px 500px at -10% 10%, #141026 0%, transparent 50%), #0a0e14;
+  color: #e6edf3;
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Thin, dark scrollbars that match the terminal feed. */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: #0a0e14;
+}
+*::-webkit-scrollbar-thumb {
+  background: #232c38;
+  border-radius: 6px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #2d3845;
+}
+
+/* Leaflet renders on a light canvas by default; tone it down for the dark UI. */
+.leaflet-container {
+  background: #0f141c !important;
+}
+.leaflet-tile {
+  filter: grayscale(0.5) brightness(0.75) contrast(1.05);
+}
+.leaflet-control-attribution {
+  background: rgba(10, 14, 20, 0.7) !important;
+  color: #7d8aa0 !important;
+}
+.leaflet-control-attribution a {
+  color: #22d3ee !important;
+}

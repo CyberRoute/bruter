@@ -12,6 +12,49 @@ import (
 	"time"
 )
 
+var errLiveDialTest = errors.New("dial disabled in test")
+
+// allSourcesTo points every HTTP source base URL at url (used to simulate a
+// total outage, or to park non-target sources on a failing server) and returns
+// a function that restores them and the backoff. The live-TLS dialer is handled
+// separately by the caller.
+func allSourcesTo(url string) func() {
+	origCrt, origCS, origShodan, origCrtName := CrtBaseURL, CertSpotterBaseURL, ShodanCTLBaseURL, CrtNameBaseURL
+	origOTX, origHT, origURLScan := OTXBaseURL, HackerTargetBaseURL, URLScanBaseURL
+	origBackoff := initialBackoff
+	CrtBaseURL, CertSpotterBaseURL, ShodanCTLBaseURL, CrtNameBaseURL = url, url, url, url
+	OTXBaseURL, HackerTargetBaseURL, URLScanBaseURL = url, url, url
+	return func() {
+		CrtBaseURL, CertSpotterBaseURL, ShodanCTLBaseURL, CrtNameBaseURL = origCrt, origCS, origShodan, origCrtName
+		OTXBaseURL, HackerTargetBaseURL, URLScanBaseURL = origOTX, origHT, origURLScan
+		initialBackoff = origBackoff
+	}
+}
+
+// isolateSources parks every HTTP source on a persistent-503 server and disables
+// the live-TLS dialer, so a test can then enable exactly the source(s) it
+// exercises by overriding their base URL (or the dialer) afterwards. Because
+// FetchCrtData now queries all sources concurrently and merges the results,
+// non-target sources must be neutralised or they would hit the real network and
+// pollute the merged output. It shrinks the retry backoff and returns a restore
+// function (which also closes the 503 server).
+func isolateSources() func() {
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	restoreURLs := allSourcesTo(down.URL)
+	initialBackoff = time.Millisecond
+	origDialer := liveCertDialer
+	liveCertDialer = func(context.Context, string, *tls.Config) (*tls.Conn, error) {
+		return nil, errLiveDialTest
+	}
+	return func() {
+		liveCertDialer = origDialer
+		restoreURLs()
+		down.Close()
+	}
+}
+
 // TestFetchCrtDataRetriesTransient verifies that 429/5xx responses are retried
 // and a subsequent 200 succeeds.
 func TestFetchCrtDataRetriesTransient(t *testing.T) {
@@ -29,10 +72,8 @@ func TestFetchCrtDataRetriesTransient(t *testing.T) {
 	}))
 	defer server.Close()
 
-	origURL, origBackoff := CrtBaseURL, initialBackoff
-	CrtBaseURL = server.URL
-	initialBackoff = time.Millisecond
-	defer func() { CrtBaseURL, initialBackoff = origURL, origBackoff }()
+	defer isolateSources()()
+	CrtBaseURL = server.URL // enable only crt.sh
 
 	data, err := FetchCrtData("example.com")
 	if err != nil {
@@ -46,15 +87,9 @@ func TestFetchCrtDataRetriesTransient(t *testing.T) {
 	}
 }
 
-// TestFetchCertSpotterRetriesTransient verifies that when crt.sh is down, a
-// transient 504 from the certspotter fallback is retried and a subsequent 200
-// succeeds, rather than failing the whole lookup on one bad gateway response.
+// TestFetchCertSpotterRetriesTransient verifies that a transient 504 from the
+// certspotter source is retried and a subsequent 200 succeeds.
 func TestFetchCertSpotterRetriesTransient(t *testing.T) {
-	crtDown := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadGateway)
-	}))
-	defer crtDown.Close()
-
 	var calls int32
 	certSpotter := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if atomic.AddInt32(&calls, 1) < 3 {
@@ -67,11 +102,8 @@ func TestFetchCertSpotterRetriesTransient(t *testing.T) {
 	}))
 	defer certSpotter.Close()
 
-	origCrt, origCS, origBackoff := CrtBaseURL, CertSpotterBaseURL, initialBackoff
-	CrtBaseURL = crtDown.URL
-	CertSpotterBaseURL = certSpotter.URL
-	initialBackoff = time.Millisecond
-	defer func() { CrtBaseURL, CertSpotterBaseURL, initialBackoff = origCrt, origCS, origBackoff }()
+	defer isolateSources()()
+	CertSpotterBaseURL = certSpotter.URL // enable only certspotter
 
 	data, err := FetchCrtData("example.com")
 	if err != nil {
@@ -85,46 +117,18 @@ func TestFetchCertSpotterRetriesTransient(t *testing.T) {
 	}
 }
 
-// TestFetchCrtDataExhaustsRetries verifies that when both crt.sh (persistent
-// 503) and the certspotter fallback fail, a clear combined error is returned.
+// TestFetchCrtDataExhaustsRetries verifies that when every source fails, a clear
+// combined error is returned.
 func TestFetchCrtDataExhaustsRetries(t *testing.T) {
-	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	defer down.Close()
-
-	restore := allSourcesTo(down.URL)
-	defer restore()
-	origDialer := liveCertDialer
-	initialBackoff = time.Millisecond
-	// Make the live-TLS fallback fail too, so the lookup truly exhausts.
-	liveCertDialer = func(context.Context, string, *tls.Config) (*tls.Conn, error) {
-		return nil, errLiveDialTest
-	}
-	defer func() { liveCertDialer = origDialer }()
+	defer isolateSources()() // all HTTP sources 503, live dialer disabled
 
 	if _, err := FetchCrtData("example.com"); err == nil {
 		t.Fatal("expected error after exhausting retries, got nil")
 	}
 }
 
-// allSourcesTo points every HTTP aggregator base URL at url (used to simulate a
-// total aggregator outage) and returns a function that restores them and the
-// backoff. The caller still controls liveCertDialer separately.
-func allSourcesTo(url string) func() {
-	origCrt, origCS, origShodan, origCrtName, origBackoff :=
-		CrtBaseURL, CertSpotterBaseURL, ShodanCTLBaseURL, CrtNameBaseURL, initialBackoff
-	CrtBaseURL, CertSpotterBaseURL, ShodanCTLBaseURL, CrtNameBaseURL = url, url, url, url
-	return func() {
-		CrtBaseURL, CertSpotterBaseURL, ShodanCTLBaseURL, CrtNameBaseURL, initialBackoff =
-			origCrt, origCS, origShodan, origCrtName, origBackoff
-	}
-}
-
-var errLiveDialTest = errors.New("dial disabled in test")
-
-// TestFetchCrtDataRespectsOverallTimeout verifies that a source which never
-// responds cannot hang the lookup past the overall deadline.
+// TestFetchCrtDataRespectsOverallTimeout verifies that sources which never
+// respond cannot hang the lookup past the overall deadline.
 func TestFetchCrtDataRespectsOverallTimeout(t *testing.T) {
 	// A server that blocks until the client's context is cancelled.
 	hang := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -155,32 +159,21 @@ func TestFetchCrtDataRespectsOverallTimeout(t *testing.T) {
 	}
 }
 
-// TestFetchLiveCertFallback verifies that when both CT aggregators are down,
-// the live certificate served by the target over TLS is read and mapped into
-// the template shape.
+// TestFetchLiveCertFallback verifies that when every aggregator is down, the
+// live certificate served by the target over TLS is read and merged in.
 func TestFetchLiveCertFallback(t *testing.T) {
-	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	defer down.Close()
-
 	// A TLS server whose cert carries DNS SANs we can assert on.
 	tlsSrv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	defer tlsSrv.Close()
 	srvAddr := strings.TrimPrefix(tlsSrv.URL, "https://")
 
-	restore := allSourcesTo(down.URL)
-	defer restore()
-	origDialer := liveCertDialer
-	initialBackoff = time.Millisecond
-	// Redirect the dial to the test server and trust its self-signed cert.
+	defer isolateSources()() // all aggregators down...
+	// ...but enable the live-TLS dialer, pointed at the test server.
 	liveCertDialer = func(_ context.Context, _ string, cfg *tls.Config) (*tls.Conn, error) {
 		cfg.RootCAs = tlsSrv.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs
 		return tls.Dial("tcp", srvAddr, cfg)
 	}
-	defer func() { liveCertDialer = origDialer }()
 
-	// httptest's TLS cert is issued for 127.0.0.1 / example.com; use that as SNI.
 	data, err := FetchCrtData("example.com")
 	if err != nil {
 		t.Fatalf("expected live-cert fallback to succeed, got %v", err)
@@ -193,24 +186,17 @@ func TestFetchLiveCertFallback(t *testing.T) {
 	}
 }
 
-// TestFetchShodanCTLFallback verifies that when crt.sh and certspotter are
-// down, the Shodan CTL hostname feed is used and mapped into the template shape.
+// TestFetchShodanCTLFallback verifies that the Shodan CTL hostname feed is used
+// and mapped into the expected shape.
 func TestFetchShodanCTLFallback(t *testing.T) {
-	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadGateway)
-	}))
-	defer down.Close()
-
 	shodan := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`["example.com","www.example.com","*.example.com"]`))
 	}))
 	defer shodan.Close()
 
-	restore := allSourcesTo(down.URL)
-	defer restore()
-	ShodanCTLBaseURL = shodan.URL
-	initialBackoff = time.Millisecond
+	defer isolateSources()()
+	ShodanCTLBaseURL = shodan.URL // enable only shodan-ctl
 
 	data, err := FetchCrtData("example.com")
 	if err != nil {
@@ -227,24 +213,16 @@ func TestFetchShodanCTLFallback(t *testing.T) {
 }
 
 // TestFetchCrtDataFallsBackToCertSpotter verifies that when crt.sh is down, the
-// certspotter fallback is used and its response is mapped to the template shape.
+// certspotter source is used and its response is mapped to the expected shape.
 func TestFetchCrtDataFallsBackToCertSpotter(t *testing.T) {
-	crtDown := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadGateway)
-	}))
-	defer crtDown.Close()
-
 	certSpotter := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`[{"id":"123","dns_names":["example.com","www.example.com"],"issuer":{"name":"CN=Test CA"}}]`))
 	}))
 	defer certSpotter.Close()
 
-	origCrt, origCS, origBackoff := CrtBaseURL, CertSpotterBaseURL, initialBackoff
-	CrtBaseURL = crtDown.URL
-	CertSpotterBaseURL = certSpotter.URL
-	initialBackoff = time.Millisecond
-	defer func() { CrtBaseURL, CertSpotterBaseURL, initialBackoff = origCrt, origCS, origBackoff }()
+	defer isolateSources()()
+	CertSpotterBaseURL = certSpotter.URL // enable only certspotter
 
 	data, err := FetchCrtData("example.com")
 	if err != nil {
