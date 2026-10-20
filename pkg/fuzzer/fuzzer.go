@@ -12,6 +12,7 @@ import (
 	"os"
 	"sort"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/CyberRoute/bruter/pkg/config"
@@ -27,6 +28,41 @@ func checkError(err error) {
 }
 
 var (
+	// requestDelay is slept before every request (per worker). Zero disables it.
+	requestDelay time.Duration
+	// rateTicker, when non-nil, paces requests to a global ceiling: every worker
+	// draws from the same tick stream, so the combined rate across all workers
+	// is capped regardless of the worker count.
+	rateTicker *time.Ticker
+)
+
+// Configure sets request pacing before scanning starts. delay is a per-request
+// sleep; maxRate is a global ceiling in requests per second (0 = unlimited).
+// It is not safe to call once workers are running.
+func Configure(delay time.Duration, maxRate int) {
+	requestDelay = delay
+	if rateTicker != nil {
+		rateTicker.Stop()
+		rateTicker = nil
+	}
+	if maxRate > 0 {
+		rateTicker = time.NewTicker(time.Second / time.Duration(maxRate))
+	}
+}
+
+// throttle blocks until the next request is allowed under the configured global
+// rate limit, then applies the per-request delay. With neither configured it
+// returns immediately.
+func throttle() {
+	if rateTicker != nil {
+		<-rateTicker.C
+	}
+	if requestDelay > 0 {
+		time.Sleep(requestDelay)
+	}
+}
+
+var (
 	g = color.New(color.FgGreen)
 	y = color.New(color.FgYellow)
 	r = color.New(color.FgRed)
@@ -35,14 +71,30 @@ var (
 
 // client is shared across all Dirsearch calls so that connections are pooled
 // and reused. Certificates are not verified (scanning use case) and redirects
-// are not followed.
+// are not followed. A request timeout is set so a host that accepts the
+// connection but never responds cannot hang a worker indefinitely (dirsearch
+// uses 7.5s by default; we allow a little more for slow TLS handshakes).
 var client = &http.Client{
+	Timeout: 10 * time.Second,
 	Transport: &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // scanner probes untrusted hosts by design
 	},
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		return http.ErrUseLastResponse
 	},
+}
+
+// isTransient reports whether a request error is worth retrying: timeouts and
+// connection resets/EOFs, which happen when a host or its CDN sheds load under
+// a burst of requests. Permanent errors (DNS failure, connection refused) are
+// not transient and are failed fast so a dead host does not burn the full
+// retry schedule on every path.
+func isTransient(err error) bool {
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	return errors.Is(err, syscall.ECONNRESET) || errors.Is(err, io.EOF)
 }
 
 // parseRetryAfter interprets a Retry-After header value, which may be either a
@@ -78,6 +130,10 @@ func Dirsearch(Mu *sync.Mutex, app *config.AppConfig, domain, path string, progr
 	}
 	head.Header.Set("User-Agent", GetRandomUserAgent())
 
+	// Pace this request under the configured delay / global rate limit so we
+	// do not overrun a target (and its CDN) into shedding connections.
+	throttle()
+
 	var resp *http.Response
 
 	// Exponential backoff parameters
@@ -87,13 +143,13 @@ func Dirsearch(Mu *sync.Mutex, app *config.AppConfig, domain, path string, progr
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		resp, err = client.Do(head)
 		if err != nil {
-			// Only transient (timeout) errors are worth retrying. Connection
-			// refused, DNS failures and the like will not recover, so fail fast
-			// for this path instead of burning the full backoff schedule on a
-			// dead host (otherwise every path retries maxRetries times).
-			var netErr net.Error
-			if errors.As(err, &netErr) && netErr.Timeout() && attempt < maxRetries {
-				app.ZeroLog.Warn().Err(err).Msgf("Timeout for URL: %s, retrying (attempt %d/%d)", url, attempt, maxRetries)
+			// Retry transient failures (timeouts, connection resets/EOF) with
+			// backoff, matching dirsearch's behaviour under load. Permanent
+			// errors (connection refused, DNS failures) will not recover, so
+			// fail fast for this path instead of burning the full backoff
+			// schedule on a dead host.
+			if isTransient(err) && attempt < maxRetries {
+				app.ZeroLog.Warn().Err(err).Msgf("Transient error for URL: %s, retrying (attempt %d/%d)", url, attempt, maxRetries)
 				time.Sleep(backoff)
 				backoff *= 2
 				continue

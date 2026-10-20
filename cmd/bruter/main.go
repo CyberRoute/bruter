@@ -51,6 +51,8 @@ var (
 	Extension  = flag.String("extension", "js", "File extension.")
 	Dictionary = flag.String("dictionary", "db/apache-list", "File to use for enumeration.")
 	Workers    = flag.Int("workers", 0, "Default is 0, if workers is less than or equal than zero, it will be auto scaled to the number of logical CPUs usable by the current process.")
+	Delay      = flag.Duration("delay", 0, "Delay before each request, per worker (e.g. 100ms). Default 0 (no delay).")
+	MaxRate    = flag.Int("max-rate", 0, "Global cap on requests per second across all workers. Default 0 (unlimited).")
 	Verbose    = flag.Bool("verbose", false, "Verbosity")
 )
 
@@ -137,6 +139,7 @@ func main() {
 
 	total := len(list)
 	shift := 1
+	fuzzer.Configure(*Delay, *MaxRate)
 	queue := createQueue(&app.Mu, *Domain, list, shift, total, *Verbose)
 
 	queue.WaitDone()
