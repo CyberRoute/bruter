@@ -1,12 +1,39 @@
 package network
 
 import (
+	"crypto/tls"
 	"fmt"
 	"github.com/likexian/whois"
 	"html/template"
 	"net"
+	"net/http"
 	"strings"
+	"time"
 )
+
+// DetectScheme probes the domain root over HTTPS, then HTTP, and returns the
+// scheme that accepts a connection ("https" preferred). Redirects are not
+// followed and certificates are not verified. If neither responds it defaults
+// to "https", since modern hosts are typically HTTPS-only.
+func DetectScheme(domain string) string {
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // scanner probes untrusted hosts by design
+		},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	for _, scheme := range []string{"https", "http"} {
+		resp, err := client.Head(scheme + "://" + domain + "/")
+		if err == nil {
+			_ = resp.Body.Close()
+			return scheme
+		}
+	}
+	return "https"
+}
 
 func ResolveByName(domain string) (string, error) {
 	ip4address, err := net.ResolveIPAddr("ip4", domain)
@@ -44,13 +71,10 @@ func WhoisLookup(domain string) (template.HTML, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to perform WHOIS lookup: %v", err)
 	}
-	lines := strings.Split(result, "\n")
-	for i, line := range lines {
-		parts := strings.SplitN(line, ":", 2)
-		if len(parts) == 2 {
-			lines[i] = parts[0] + ":" + parts[1]
-		}
-	}
-	result = strings.Join(lines, "<br>")
-	return template.HTML(result), nil
+	// WHOIS output is attacker-influenceable (registration fields of a malicious
+	// domain), so escape it before marking it safe HTML, then turn newlines into
+	// <br> for display.
+	escaped := template.HTMLEscapeString(result)
+	escaped = strings.ReplaceAll(escaped, "\n", "<br>")
+	return template.HTML(escaped), nil
 }

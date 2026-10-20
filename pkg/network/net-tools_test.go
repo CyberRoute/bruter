@@ -1,6 +1,7 @@
 package network_test
 
 import (
+	"net"
 	"testing"
 
 	"github.com/CyberRoute/bruter/pkg/network"
@@ -10,13 +11,11 @@ func TestResolveByName(t *testing.T) {
 	tests := []struct {
 		name    string
 		domain  string
-		want    string
 		wantErr bool
 	}{
 		{
 			name:   "valid domain",
 			domain: "example.com",
-			want:   "93.184.215.14",
 		},
 		{
 			name:    "invalid domain",
@@ -31,8 +30,14 @@ func TestResolveByName(t *testing.T) {
 				t.Errorf("ResolveByName() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if got != tt.want {
-				t.Errorf("ResolveByName() = %v, want %v", got, tt.want)
+			if tt.wantErr {
+				return
+			}
+			// Assert a resolvable IPv4 address rather than a hardcoded value,
+			// which changes over time for shared hosts like example.com.
+			ip := net.ParseIP(got)
+			if ip == nil || ip.To4() == nil {
+				t.Errorf("ResolveByName() = %q, want a valid IPv4 address", got)
 			}
 		})
 	}

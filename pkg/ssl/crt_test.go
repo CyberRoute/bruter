@@ -18,6 +18,11 @@ func TestFetchCrtData(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
+	// Point the fetcher at the mock server instead of the live crt.sh service.
+	orig := ssl.CrtBaseURL
+	ssl.CrtBaseURL = mockServer.URL
+	defer func() { ssl.CrtBaseURL = orig }()
+
 	data, err := ssl.FetchCrtData("example.com")
 	if err != nil {
 		t.Fatalf("Failed to fetch data: %v", err)

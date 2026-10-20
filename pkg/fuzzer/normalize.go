@@ -5,9 +5,14 @@ import (
 	"net/url"
 )
 
-func NormalizeURL(base string) (string, error) {
+func NormalizeURL(base, scheme string) (string, error) {
 	if base == "" {
 		return "", errors.New("URL is empty")
+	}
+
+	// Default to http only when no valid scheme was supplied.
+	if scheme != "http" && scheme != "https" {
+		scheme = "http"
 	}
 
 	// Parse the URL
@@ -18,7 +23,7 @@ func NormalizeURL(base string) (string, error) {
 
 	// Ensure the scheme is set to either "http" or "https"
 	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
-		parsedURL.Scheme = "http"
+		parsedURL.Scheme = scheme
 	}
 
 	// Update the original string

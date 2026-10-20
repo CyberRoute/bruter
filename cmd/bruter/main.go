@@ -15,7 +15,9 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"math"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -36,7 +38,7 @@ type Statistics struct {
 	Inputs uint64
 }
 
-const portNumber = ":8080"
+const port = "8080"
 
 var app config.AppConfig
 var session *scs.SessionManager
@@ -49,6 +51,8 @@ var (
 	Extension  = flag.String("extension", "js", "File extension.")
 	Dictionary = flag.String("dictionary", "db/apache-list", "File to use for enumeration.")
 	Workers    = flag.Int("workers", 0, "Default is 0, if workers is less than or equal than zero, it will be auto scaled to the number of logical CPUs usable by the current process.")
+	Delay      = flag.Duration("delay", 0, "Delay before each request, per worker (e.g. 100ms). Default 0 (no delay).")
+	MaxRate    = flag.Int("max-rate", 0, "Global cap on requests per second across all workers. Default 0 (unlimited).")
 	Verbose    = flag.Bool("verbose", false, "Verbosity")
 )
 
@@ -59,6 +63,9 @@ func main() {
 		flag.Usage()
 		os.Exit(1)
 	}
+	// Accept a full URL (e.g. https://host/path) and reduce it to the bare host,
+	// since the resolver and scanner expect a hostname.
+	*Domain = sanitizeDomain(*Domain)
 	r := color.New(color.FgRed)
 	signals := make(chan os.Signal, 2)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
@@ -76,6 +83,9 @@ func main() {
 		logger.Fatal().Msg(fmt.Sprintf("Unable to resolve %s", *Domain))
 	}
 	logger.Info().Msg(fmt.Sprintf("Scanning IP %s %s", IP, "OK"))
+
+	app.Scheme = network.DetectScheme(*Domain)
+	logger.Info().Msgf("Using %s:// to probe %s", app.Scheme, *Domain)
 
 	app.InProduction = false
 	session = scs.New()
@@ -97,15 +107,16 @@ func main() {
 	handlers.NewHandlers(repo)
 	render.NewTemplates(&app)
 
+	listenAddr := net.JoinHostPort(*Address, port)
 	srv := &http.Server{
-		Addr:    portNumber,
+		Addr:    listenAddr,
 		Handler: server.NewServer(&app),
 	}
 
 	go func() {
-		logger.Info().Msg(fmt.Sprintf("UI running on http://%s%s/", *Address, portNumber))
-		if err := srv.ListenAndServe(); err != nil {
-			panic(err)
+		logger.Info().Msg(fmt.Sprintf("UI running on http://%s/", listenAddr))
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Fatal().Err(err).Msg("server failed")
 		}
 	}()
 
@@ -128,6 +139,7 @@ func main() {
 
 	total := len(list)
 	shift := 1
+	fuzzer.Configure(*Delay, *MaxRate)
 	queue := createQueue(&app.Mu, *Domain, list, shift, total, *Verbose)
 
 	queue.WaitDone()
@@ -135,6 +147,26 @@ func main() {
 	logger.Info().Msg(fmt.Sprintf("Wordlist of %d paths", stats.Inputs))
 	logger.Info().Msg("All tasks completed, press Ctrl-C to quit.")
 	select {}
+}
+
+// sanitizeDomain reduces a user-supplied target to a bare hostname. It accepts
+// full URLs ("https://host/path"), host:port, and trailing paths.
+func sanitizeDomain(input string) string {
+	input = strings.TrimSpace(input)
+	if strings.Contains(input, "://") {
+		if u, err := url.Parse(input); err == nil && u.Hostname() != "" {
+			return u.Hostname()
+		}
+	}
+	// Strip any path component.
+	if i := strings.IndexByte(input, '/'); i >= 0 {
+		input = input[:i]
+	}
+	// Strip a port if present.
+	if host, _, err := net.SplitHostPort(input); err == nil {
+		input = host
+	}
+	return input
 }
 
 func createQueue(mu *sync.Mutex, domain string, list []string, shift, total int, verbose bool) *async.WorkQueue {

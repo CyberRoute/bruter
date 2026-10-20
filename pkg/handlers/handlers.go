@@ -91,7 +91,6 @@ func (m *Repository) Consumer(w http.ResponseWriter, r *http.Request) {
 	m.App.Mu.Lock()
 	defer m.App.Mu.Unlock()
 
-	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
 	session_file := m.App.Domain + ".json"
 	file, err := os.OpenFile(session_file, os.O_CREATE|os.O_RDWR, 0644)

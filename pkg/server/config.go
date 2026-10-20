@@ -7,8 +7,6 @@ import (
 	"github.com/CyberRoute/bruter/pkg/models"
 	"github.com/CyberRoute/bruter/pkg/network"
 	"github.com/CyberRoute/bruter/pkg/shodan"
-	"github.com/CyberRoute/bruter/pkg/ssl"
-	"html/template"
 	"net/http"
 )
 
@@ -34,7 +32,11 @@ func (sc *ConfigServer) RunConfiguration(app *config.AppConfig) (models.HomeArgs
 	sc.checkError(err)
 
 	ipv6, err := network.ResolveByNameipv6(app.Domain)
-	sc.checkError(err)
+	if err != nil {
+		// Missing AAAA record is common and not an error worth alarming about.
+		sc.App.ZeroLog.Debug().Msgf("no IPv6 address for %s", app.Domain)
+		ipv6 = "not found"
+	}
 
 	customTransport := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
@@ -47,14 +49,12 @@ func (sc *ConfigServer) RunConfiguration(app *config.AppConfig) (models.HomeArgs
 		hostinfo   shodan.Response
 		headers    map[string]interface{}
 		mx_records map[string]uint16
-		whoisinfo  template.HTML
 		mysql      string
 		ssh        string
 		ftp        string
 		smtp       string
 		pop        string
 		irc        string
-		sslinfo    []map[string]interface{}
 	)
 
 	// Step 1: Execute functions that don't depend on hostinfo.Ports
@@ -64,22 +64,24 @@ func (sc *ConfigServer) RunConfiguration(app *config.AppConfig) (models.HomeArgs
 			sc.checkError(err)
 		},
 		func() {
-			headers, err = sh.Head("http://" + app.Domain)
-			sc.checkError(err)
+			var herr error
+			headers, herr = sh.Head(app.Scheme + "://" + app.Domain)
+			if herr != nil {
+				sc.App.ZeroLog.Warn().Err(herr).Msg("could not grab HTTP headers from target")
+			}
 		},
 		func() {
-			mx_records, err = network.FindMX(app.Domain)
-			sc.checkError(err)
-		},
-		func() {
-			whoisinfo, err = network.WhoisLookup(app.Domain)
-			sc.checkError(err)
-		},
-		func() {
-			sslinfo, err = ssl.FetchCrtData(app.Domain)
-			sc.checkError(err)
+			var mxErr error
+			mx_records, mxErr = network.FindMX(app.Domain)
+			if mxErr != nil {
+				// Most hosts (non-mail subdomains) have no MX records; not alarming.
+				sc.App.ZeroLog.Debug().Msgf("no MX records for %s", app.Domain)
+			}
 		},
 	)
+	// Note: SSL (crt.sh) and WHOIS data are fetched lazily by their handlers on
+	// each request, so they are intentionally not gathered here — doing so would
+	// block the UI from starting while those external services are queried.
 
 	// Step 2: Execute functions that depend on hostinfo.Ports
 	RunConcurrently(
@@ -123,13 +125,7 @@ func (sc *ConfigServer) RunConfiguration(app *config.AppConfig) (models.HomeArgs
 		Irc:     irc,
 	}
 
-	sslArgs := models.TemplateData{
-		SSLInfo: sslinfo,
-	}
-
-	whoIsArgs := models.TemplateData{
-		WhoisInfo: whoisinfo,
-	}
-
-	return homeArgs, sslArgs, whoIsArgs
+	// SSL and WHOIS args are empty here; their handlers populate the data per
+	// request (see handlers.SSLInfo / handlers.WhoisInfo).
+	return homeArgs, models.TemplateData{}, models.TemplateData{}
 }

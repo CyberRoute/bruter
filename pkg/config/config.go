@@ -16,6 +16,7 @@ type AppConfig struct {
 	InProduction  bool
 	Session       *scs.SessionManager
 	Domain        string
+	Scheme        string
 	ShodanAPIKey  string
 	Mu            sync.Mutex
 }
