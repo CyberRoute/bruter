@@ -46,6 +46,10 @@ The Go server exposes a small JSON API that the SPA consumes:
 | --- | --- |
 | `GET /api/host` | Host/network info, open ports, MX records, grabbed banners, HTTP headers |
 | `GET /api/ssl` | Certificate-transparency records (crt.sh and fallbacks) |
+| `GET /api/dns` | DNS records (A, AAAA, NS, TXT, CNAME, MX, SOA, reverse-DNS PTR) plus a zone-transfer (AXFR) check against each name server and an SPF/DMARC email-spoofing verdict |
+| `GET /api/subdomains/brute` | Active brute-force of common subdomain labels (wildcard-aware), returning resolved hosts and their IPs |
+| `GET /api/reverseip` | Reverse-IP lookup — other host names sharing the domain's IP ("neighbours"), via an external source |
+| `GET /api/robtex` | Robtex comprehensive IP view — owning network (ASN/route/whois) and active/passive DNS history, via an external source |
 | `GET /api/whois` | Raw WHOIS record |
 | `GET /consumer` | Live directory-fuzzing feed (polled by the dashboard) |
 

@@ -1,13 +1,16 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/CyberRoute/bruter/pkg/models"
 	"github.com/CyberRoute/bruter/pkg/network"
 	"github.com/CyberRoute/bruter/pkg/ssl"
+	"github.com/CyberRoute/bruter/pkg/subdomain"
 )
 
 // hostInfo is the JSON shape served to the React UI for the dashboard. It is a
@@ -109,6 +112,93 @@ func (m *Repository) SSLAPI(w http.ResponseWriter, r *http.Request) {
 		sslInfo = []map[string]interface{}{}
 	}
 	m.writeJSON(w, sslInfo)
+}
+
+// DNSAPI serves the domain's DNS records (A/AAAA/NS/TXT/CNAME/MX/PTR). When the
+// domain resolves to nothing it responds 502 with an error message so the UI
+// can distinguish a failed lookup from a genuinely sparse record set, matching
+// SSLAPI's behaviour.
+func (m *Repository) DNSAPI(w http.ResponseWriter, r *http.Request) {
+	rec, err := network.LookupDNS(m.App.Domain)
+	if err != nil {
+		m.checkError(err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		if encErr := json.NewEncoder(w).Encode(map[string]string{"error": err.Error()}); encErr != nil {
+			m.App.ZeroLog.Error().Err(encErr).Msg("failed to encode DNS error response")
+		}
+		return
+	}
+	m.writeJSON(w, rec)
+}
+
+// bruteSubdomainsTimeout bounds a whole brute-force run so a slow resolver or
+// an unusually large wordlist cannot hold the request open indefinitely.
+const bruteSubdomainsTimeout = 60 * time.Second
+
+// SubdomainBruteAPI actively brute-forces common subdomain labels against the
+// scanned domain and returns the ones that resolve. This is an active probe
+// (DNS resolution of guessed names), unlike the passive /api/ssl source. The
+// response reports whether the zone uses wildcard DNS so the UI can caveat the
+// results, and how many candidates were tested.
+func (m *Repository) SubdomainBruteAPI(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), bruteSubdomainsTimeout)
+	defer cancel()
+
+	result := subdomain.BruteForce(ctx, m.App.Domain, subdomain.DefaultWords(), 0)
+	m.writeJSON(w, result)
+}
+
+// reverseIPTimeout bounds the external reverse-IP lookup.
+const reverseIPTimeout = 20 * time.Second
+
+// ReverseIPAPI resolves the scanned domain to an IPv4 address and returns the
+// other host names sharing that IP ("neighbours"), via an external source. On
+// a resolve failure or an unavailable source it responds 502 with an error
+// message, matching the other external-source endpoints.
+func (m *Repository) ReverseIPAPI(w http.ResponseWriter, r *http.Request) {
+	ip, err := network.ResolveByName(m.App.Domain)
+	if err == nil {
+		ctx, cancel := context.WithTimeout(r.Context(), reverseIPTimeout)
+		defer cancel()
+		var result *network.ReverseIPResult
+		result, err = network.ReverseIP(ctx, ip)
+		if err == nil {
+			m.writeJSON(w, result)
+			return
+		}
+	}
+
+	m.checkError(err)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusBadGateway)
+	if encErr := json.NewEncoder(w).Encode(map[string]string{"error": err.Error()}); encErr != nil {
+		m.App.ZeroLog.Error().Err(encErr).Msg("failed to encode reverse-IP error response")
+	}
+}
+
+// RobtexAPI resolves the scanned domain and returns Robtex's comprehensive
+// view of its IP (network ownership plus active/passive DNS). On a resolve
+// failure or unavailable source it responds 502 with an error message.
+func (m *Repository) RobtexAPI(w http.ResponseWriter, r *http.Request) {
+	ip, err := network.ResolveByName(m.App.Domain)
+	if err == nil {
+		ctx, cancel := context.WithTimeout(r.Context(), reverseIPTimeout)
+		defer cancel()
+		var info *network.RobtexIPInfo
+		info, err = network.RobtexIPQuery(ctx, ip)
+		if err == nil {
+			m.writeJSON(w, info)
+			return
+		}
+	}
+
+	m.checkError(err)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusBadGateway)
+	if encErr := json.NewEncoder(w).Encode(map[string]string{"error": err.Error()}); encErr != nil {
+		m.App.ZeroLog.Error().Err(encErr).Msg("failed to encode robtex error response")
+	}
 }
 
 // WhoisAPI serves the raw WHOIS record as JSON ({ "whois": "..." }).
