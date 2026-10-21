@@ -15,22 +15,36 @@ What does it do?
 - It collects WHOIS query information
 - It brute force directories on WebServers and reports results (200)
 - It provides info from crt.sh about SSL certificates
+- DNS enumeration — A, AAAA, NS, TXT, CNAME, MX, SOA and reverse-DNS (PTR) records
+- Zone-transfer (AXFR) check — attempts a full zone transfer against each authoritative name server and flags any that leak the zone
+- Email-spoofing posture — parses SPF and DMARC and reports whether the domain is spoofable
+- Subdomain discovery — passive sources (crt.sh and fallbacks) plus an active, wildcard-aware brute-force of common labels
+- Reverse IP — other host names sharing the target's IP ("neighbours")
+- Comprehensive IP info (Robtex) — owning network (ASN/route/whois) and active/passive DNS history
 - It supports custom wordlists
 - It produces a Web UI for presentation
 
+> **Note on active checks.** Zone-transfer attempts and subdomain brute-force
+> send live DNS queries to the target's infrastructure, and the reverse-IP and
+> Robtex lookups query third-party services. Only run Bruter against systems you
+> are authorised to test.
+
 ## Usage
 ```
-   Usage of /tmp/go-build3838391229/b001/exe/concurrency:
-  -address string
+   -address string
     	IP address to bind the web UI server to. (default "127.0.0.1")
+  -delay duration
+    	Delay before each request, per worker (e.g. 100ms). Default 0 (no delay).
   -dictionary string
     	File to use for enumeration. (default "db/apache-list")
   -domain string
-    	domain to scan
+    	Domain to scan
   -extension string
     	File extension. (default "js")
+  -max-rate int
+    	Global cap on requests per second across all workers. Default 0 (unlimited).
   -shodan string
-    	shodan API key
+    	Dhodan API key
   -verbose
     	Verbosity
   -workers int
@@ -40,7 +54,10 @@ What does it do?
 ## Web UI
 The presentation layer is a React single-page app (Vite + TypeScript + Tailwind)
 that lives in [`web/`](web/) and is **embedded into the Go binary** via `go:embed`.
-The Go server exposes a small JSON API that the SPA consumes:
+It presents the scan as tabs — **Dashboard** (host/network, ports, banners,
+headers), **Subdomains** (passive + active brute-force), **DNS** (records, zone
+transfer, SPF/DMARC, reverse-IP and Robtex), and **WHOIS** — backed by a small
+JSON API that the SPA consumes:
 
 | Endpoint | Description |
 | --- | --- |
