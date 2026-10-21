@@ -1,10 +1,11 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { GlobeIcon, SitemapIcon, FileIcon } from "./icons";
+import { GlobeIcon, SitemapIcon, NetworkIcon, FileIcon } from "./icons";
 import type { ReactNode } from "react";
 
 const tabs = [
   { to: "/", label: "Dashboard", icon: <GlobeIcon /> },
   { to: "/subdomains", label: "Subdomains", icon: <SitemapIcon /> },
+  { to: "/dns", label: "DNS", icon: <NetworkIcon /> },
   { to: "/whois", label: "WHOIS", icon: <FileIcon /> },
 ];
 

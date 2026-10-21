@@ -51,6 +51,101 @@ func ResolveByNameipv6(domain string) (string, error) {
 	return ip6address.String(), nil
 }
 
+// DNSRecords is the collected DNS view of a domain returned by LookupDNS and
+// served as JSON to the UI. Each slice is nil/empty when that record type is
+// absent or the individual lookup fails, so a single failing record type does
+// not blank out the others.
+type DNSRecords struct {
+	A     []string          `json:"a"`
+	AAAA  []string          `json:"aaaa"`
+	NS    []string          `json:"ns"`
+	TXT   []string          `json:"txt"`
+	CNAME string            `json:"cname"`
+	MX    map[string]uint16 `json:"mx"`
+	PTR   []string          `json:"ptr"`
+	SOA   *SOARecord        `json:"soa,omitempty"`
+	AXFR  []ZoneTransfer    `json:"axfr,omitempty"`
+	Email *EmailAuth        `json:"email,omitempty"`
+}
+
+// LookupDNS gathers common DNS records (A, AAAA, NS, TXT, CNAME, MX) plus the
+// reverse-DNS (PTR) names of the first A record using the stdlib resolver. It
+// is best-effort: individual record-type failures (e.g. NXDOMAIN for TXT) are
+// swallowed so the remaining records still populate. It returns an error only
+// when the domain resolves to nothing at all, which the caller surfaces as a
+// failed lookup rather than an empty-but-OK result.
+func LookupDNS(domain string) (*DNSRecords, error) {
+	rec := &DNSRecords{MX: map[string]uint16{}}
+
+	if ips, err := net.LookupIP(domain); err == nil {
+		for _, ip := range ips {
+			if v4 := ip.To4(); v4 != nil {
+				rec.A = append(rec.A, v4.String())
+			} else {
+				rec.AAAA = append(rec.AAAA, ip.String())
+			}
+		}
+	}
+
+	if nss, err := net.LookupNS(domain); err == nil {
+		for _, ns := range nss {
+			rec.NS = append(rec.NS, strings.TrimSuffix(ns.Host, "."))
+		}
+	}
+
+	if txts, err := net.LookupTXT(domain); err == nil {
+		rec.TXT = txts
+	}
+
+	// A CNAME equal to the queried name (with trailing dot) means no real
+	// alias exists, so only record a genuine alias.
+	if cname, err := net.LookupCNAME(domain); err == nil {
+		if trimmed := strings.TrimSuffix(cname, "."); trimmed != "" && !strings.EqualFold(trimmed, domain) {
+			rec.CNAME = trimmed
+		}
+	}
+
+	if mxs, err := net.LookupMX(domain); err == nil {
+		for _, mx := range mxs {
+			rec.MX[strings.TrimSuffix(mx.Host, ".")] = mx.Pref
+		}
+	}
+
+	// Reverse-DNS the first IPv4 address (fall back to the first IPv6) so the
+	// UI can show which host name the address maps back to.
+	var ptrTarget string
+	if len(rec.A) > 0 {
+		ptrTarget = rec.A[0]
+	} else if len(rec.AAAA) > 0 {
+		ptrTarget = rec.AAAA[0]
+	}
+	if ptrTarget != "" {
+		if names, err := net.LookupAddr(ptrTarget); err == nil {
+			for _, n := range names {
+				rec.PTR = append(rec.PTR, strings.TrimSuffix(n, "."))
+			}
+		}
+	}
+
+	if len(rec.A) == 0 && len(rec.AAAA) == 0 && len(rec.NS) == 0 &&
+		len(rec.TXT) == 0 && rec.CNAME == "" && len(rec.MX) == 0 {
+		return nil, fmt.Errorf("no DNS records found for domain %s", domain)
+	}
+
+	// Authoritative-data checks (SOA via a resolver, AXFR against each NS) run
+	// after the basic records so a resolver outage or a refused transfer never
+	// blanks out the records we already have.
+	rec.SOA = LookupSOA(domain)
+	if len(rec.NS) > 0 {
+		rec.AXFR = AttemptAXFR(domain, rec.NS)
+	}
+
+	// Email-authentication verdict: SPF comes from the TXT records already
+	// fetched; DMARC is looked up separately inside AnalyzeEmailAuth.
+	rec.Email = AnalyzeEmailAuth(domain, rec.TXT)
+	return rec, nil
+}
+
 func FindMX(domain string) (map[string]uint16, error) {
 	mx_records := make(map[string]uint16)
 	mxRecords, err := net.LookupMX(domain)
