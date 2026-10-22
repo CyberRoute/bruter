@@ -4,6 +4,7 @@ import type { BruteResult } from "../lib/api";
 import { useAsync } from "../lib/useAsync";
 import { Card, Spinner, ErrorNote, Pill } from "../components/ui";
 import { SitemapIcon, DownloadIcon } from "../components/icons";
+import { ProbePanel } from "../components/ProbePanel";
 
 function str(v: unknown): string {
   return v === null || v === undefined ? "" : String(v);
@@ -139,6 +140,7 @@ export function Subdomains() {
     );
 
   return (
+    <div className="flex flex-col gap-4">
     <Card
       icon={<SitemapIcon />}
       title="Subdomains"
@@ -257,5 +259,7 @@ export function Subdomains() {
         </div>
       )}
     </Card>
+    <ProbePanel hosts={visible} />
+    </div>
   );
 }

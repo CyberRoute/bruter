@@ -9,6 +9,7 @@ import (
 
 	"github.com/CyberRoute/bruter/pkg/models"
 	"github.com/CyberRoute/bruter/pkg/network"
+	"github.com/CyberRoute/bruter/pkg/probe"
 	"github.com/CyberRoute/bruter/pkg/ssl"
 	"github.com/CyberRoute/bruter/pkg/subdomain"
 )
@@ -199,6 +200,40 @@ func (m *Repository) RobtexAPI(w http.ResponseWriter, r *http.Request) {
 	if encErr := json.NewEncoder(w).Encode(map[string]string{"error": err.Error()}); encErr != nil {
 		m.App.ZeroLog.Error().Err(encErr).Msg("failed to encode robtex error response")
 	}
+}
+
+// maxProbeHosts caps how many hosts a single probe request will process so a
+// large discovered set cannot tie up the server indefinitely.
+const maxProbeHosts = 300
+
+// probeTimeout bounds the whole probe run.
+const probeTimeout = 90 * time.Second
+
+// ProbeAPI performs HTTP probing and subdomain-takeover checks on a client-
+// supplied list of hosts (POST { "hosts": [...] }). The list comes from the
+// UI's already-discovered subdomains, keeping discovery and probing decoupled.
+// This is an active check: it makes HTTP requests to each host.
+func (m *Repository) ProbeAPI(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Hosts []string `json:"hosts"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		if encErr := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body: " + err.Error()}); encErr != nil {
+			m.App.ZeroLog.Error().Err(encErr).Msg("failed to encode probe error response")
+		}
+		return
+	}
+	if len(req.Hosts) > maxProbeHosts {
+		req.Hosts = req.Hosts[:maxProbeHosts]
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), probeTimeout)
+	defer cancel()
+
+	results := probe.ProbeHosts(ctx, req.Hosts, 0)
+	m.writeJSON(w, results)
 }
 
 // WhoisAPI serves the raw WHOIS record as JSON ({ "whois": "..." }).

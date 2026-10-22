@@ -21,13 +21,15 @@ What does it do?
 - Subdomain discovery — passive sources (crt.sh and fallbacks) plus an active, wildcard-aware brute-force of common labels
 - Reverse IP — other host names sharing the target's IP ("neighbours")
 - Comprehensive IP info (Robtex) — owning network (ASN/route/whois) and active/passive DNS history
+- **HTTP probing** — resolves and fetches discovered hosts, capturing status, title, server, technology hints, reflective CORS and missing security headers
+- **Subdomain takeover detection** — flags dangling CNAMEs pointing at unclaimed hosting services (GitHub Pages, S3, Heroku, …) using a fingerprint database
 - It supports custom wordlists
 - It produces a Web UI for presentation
 
-> **Note on active checks.** Zone-transfer attempts and subdomain brute-force
-> send live DNS queries to the target's infrastructure, and the reverse-IP and
-> Robtex lookups query third-party services. Only run Bruter against systems you
-> are authorised to test.
+> **Note on active checks.** Zone-transfer attempts, subdomain brute-force and
+> HTTP probing send live queries/requests to the target's infrastructure, and
+> the reverse-IP and Robtex lookups query third-party services. Only run Bruter
+> against systems you are authorised to test.
 
 ## Usage
 ```
@@ -55,7 +57,8 @@ What does it do?
 The presentation layer is a React single-page app (Vite + TypeScript + Tailwind)
 that lives in [`web/`](web/) and is **embedded into the Go binary** via `go:embed`.
 It presents the scan as tabs — **Dashboard** (host/network, ports, banners,
-headers), **Subdomains** (passive + active brute-force), **DNS** (records, zone
+headers), **Subdomains** (passive + active brute-force, plus HTTP probing and
+subdomain-takeover detection), **DNS** (records, zone
 transfer, SPF/DMARC, reverse-IP and Robtex), and **WHOIS** — backed by a small
 JSON API that the SPA consumes:
 
@@ -67,6 +70,7 @@ JSON API that the SPA consumes:
 | `GET /api/subdomains/brute` | Active brute-force of common subdomain labels (wildcard-aware), returning resolved hosts and their IPs |
 | `GET /api/reverseip` | Reverse-IP lookup — other host names sharing the domain's IP ("neighbours"), via an external source |
 | `GET /api/robtex` | Robtex comprehensive IP view — owning network (ASN/route/whois) and active/passive DNS history, via an external source |
+| `POST /api/probe` | HTTP probe + subdomain-takeover check for a posted list of hosts (`{"hosts":[...]}`) — status, title, server, tech, CORS, missing security headers, takeover flags |
 | `GET /api/whois` | Raw WHOIS record |
 | `GET /consumer` | Live directory-fuzzing feed (polled by the dashboard) |
 
