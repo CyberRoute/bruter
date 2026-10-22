@@ -20,6 +20,7 @@ func Routes(mux *chi.Mux, homeArgs models.HomeArgs) {
 	mux.Get("/api/subdomains/brute", handlers.Repo.SubdomainBruteAPI)
 	mux.Get("/api/reverseip", handlers.Repo.ReverseIPAPI)
 	mux.Get("/api/robtex", handlers.Repo.RobtexAPI)
+	mux.Post("/api/probe", handlers.Repo.ProbeAPI)
 	mux.Get("/api/whois", handlers.Repo.WhoisAPI)
 
 	// Live directory-fuzzing feed (polled by the dashboard).

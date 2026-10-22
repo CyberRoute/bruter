@@ -107,6 +107,30 @@ export interface RobtexIpInfo {
   passive: RobtexName[];
 }
 
+export interface Takeover {
+  vulnerable: boolean;
+  service: string;
+  cname: string;
+  evidence: string;
+}
+
+export interface ProbeResult {
+  host: string;
+  url: string;
+  ip: string;
+  status: number;
+  title: string;
+  server: string;
+  powered_by: string;
+  content_length: number;
+  redirect_to: string;
+  tech: string[];
+  cors: string;
+  missing_headers: string[];
+  takeover?: Takeover;
+  error?: string;
+}
+
 export interface DnsRecords {
   a: string[] | null;
   aaaa: string[] | null;
@@ -137,6 +161,25 @@ async function getJSON<T>(url: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+async function postJSON<T>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      const b = await res.json();
+      if (b && typeof b.error === "string") detail = b.error;
+    } catch {
+      /* non-JSON error body; keep the status */
+    }
+    throw new Error(detail);
+  }
+  return (await res.json()) as T;
+}
+
 export const api = {
   host: () => getJSON<HostInfo>("/api/host"),
   ssl: () => getJSON<SslCert[]>("/api/ssl"),
@@ -147,6 +190,8 @@ export const api = {
   reverseIp: () => getJSON<ReverseIp>("/api/reverseip"),
   // Robtex comprehensive IP view: network ownership + active/passive DNS.
   robtex: () => getJSON<RobtexIpInfo>("/api/robtex"),
+  // Active HTTP probe + takeover check of a caller-supplied host list.
+  probe: (hosts: string[]) => postJSON<ProbeResult[]>("/api/probe", { hosts }),
   whois: () => getJSON<{ whois: string }>("/api/whois"),
   // The fuzzing feed is a flat array wrapped in { Urls: [...] } by the backend.
   consumer: () => getJSON<{ Urls: FuzzUrl[] | null }>("/consumer"),
