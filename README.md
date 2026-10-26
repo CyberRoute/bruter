@@ -5,7 +5,6 @@
 <div align="center">
     <img src="img/bruter-logo-transparent.png" width="400px"/>
 </div>
-# Bruter
 Bruter is a simple app that was built as an experiment while learning Go. It is indeed very much inspired by [Xray](https://github.com/evilsocket/xray) git  (but hey not copied ;)). The tooling can be used to test webservers and validate webservers configurations, but not just!
 
 What does it do?
