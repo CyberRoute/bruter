@@ -16,10 +16,10 @@ jobs:
     name: lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/setup-go@v3
+      - uses: actions/setup-go@v5
         with:
-          go-version: '1.20.2'
-      - uses: actions/checkout@v3
+          go-version: '1.27.3'
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -28,9 +28,10 @@ jobs:
       - name: Build web UI
         run: npm --prefix web ci && npm --prefix web run build
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v3
+        uses: golangci/golangci-lint-action@v7
         with:
-          # Optional: version of golangci-lint to use in form of v1.2 or v1.2.3 or `latest` to use the latest version
+          # golangci-lint v2 (required by action v7). `latest` tracks the newest
+          # v2 release, which is built against a current Go toolchain.
           version: latest
 
           # Optional: working directory, useful for monorepos
