@@ -7,7 +7,6 @@ import (
 	"github.com/CyberRoute/bruter/pkg/fuzzer"
 	"github.com/CyberRoute/bruter/pkg/handlers"
 	"github.com/CyberRoute/bruter/pkg/network"
-	"github.com/CyberRoute/bruter/pkg/render"
 	"github.com/CyberRoute/bruter/pkg/server"
 	"github.com/alexedwards/scs/v2"
 	"github.com/evilsocket/islazy/async"
@@ -95,17 +94,10 @@ func main() {
 	session.Cookie.Secure = app.InProduction
 	app.Session = session
 
-	tc, err := render.CreateTemplateCache()
-	if err != nil {
-		logger.Fatal().Err(err).Msg("cannot create template cache")
-	}
-	app.TemplateCache = tc
-	app.UseCache = false
 	app.Domain = *Domain
 	app.ShodanAPIKey = *Apikey
 	repo := handlers.NewRepo(&app)
 	handlers.NewHandlers(repo)
-	render.NewTemplates(&app)
 
 	listenAddr := net.JoinHostPort(*Address, port)
 	srv := &http.Server{

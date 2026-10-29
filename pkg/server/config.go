@@ -27,7 +27,7 @@ func (sc *ConfigServer) checkError(err error) {
 }
 
 // RunConfiguration runs for NewServer
-func (sc *ConfigServer) RunConfiguration(app *config.AppConfig) (models.HomeArgs, models.TemplateData, models.TemplateData) {
+func (sc *ConfigServer) RunConfiguration(app *config.AppConfig) models.HomeArgs {
 	ipv4, err := network.ResolveByName(app.Domain)
 	sc.checkError(err)
 
@@ -125,7 +125,7 @@ func (sc *ConfigServer) RunConfiguration(app *config.AppConfig) (models.HomeArgs
 		Irc:     irc,
 	}
 
-	// SSL and WHOIS args are empty here; their handlers populate the data per
-	// request (see handlers.SSLInfo / handlers.WhoisInfo).
-	return homeArgs, models.TemplateData{}, models.TemplateData{}
+	// SSL and WHOIS data are fetched lazily by their API handlers per request,
+	// so they are not gathered here.
+	return homeArgs
 }

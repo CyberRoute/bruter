@@ -3,8 +3,6 @@ package network
 import (
 	"crypto/tls"
 	"fmt"
-	"github.com/likexian/whois"
-	"html/template"
 	"net"
 	"net/http"
 	"strings"
@@ -161,26 +159,3 @@ func FindMX(domain string) (map[string]uint16, error) {
 	return mx_records, nil
 }
 
-// WhoisLookupRaw returns the unmodified WHOIS text for a domain. It is intended
-// for JSON API consumers (e.g. the React UI) that escape the value themselves;
-// unlike WhoisLookup it performs no HTML escaping or <br> substitution.
-func WhoisLookupRaw(domain string) (string, error) {
-	result, err := whois.Whois(domain)
-	if err != nil {
-		return "", fmt.Errorf("failed to perform WHOIS lookup: %v", err)
-	}
-	return result, nil
-}
-
-func WhoisLookup(domain string) (template.HTML, error) {
-	result, err := whois.Whois(domain)
-	if err != nil {
-		return "", fmt.Errorf("failed to perform WHOIS lookup: %v", err)
-	}
-	// WHOIS output is attacker-influenceable (registration fields of a malicious
-	// domain), so escape it before marking it safe HTML, then turn newlines into
-	// <br> for display.
-	escaped := template.HTMLEscapeString(result)
-	escaped = strings.ReplaceAll(escaped, "\n", "<br>")
-	return template.HTML(escaped), nil
-}

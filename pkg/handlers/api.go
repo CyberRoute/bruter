@@ -3,15 +3,19 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/CyberRoute/bruter/pkg/crawl"
 	"github.com/CyberRoute/bruter/pkg/models"
 	"github.com/CyberRoute/bruter/pkg/network"
 	"github.com/CyberRoute/bruter/pkg/probe"
 	"github.com/CyberRoute/bruter/pkg/ssl"
 	"github.com/CyberRoute/bruter/pkg/subdomain"
+	"github.com/CyberRoute/bruter/pkg/xss"
+	"github.com/go-chi/chi/v5"
 )
 
 // hostInfo is the JSON shape served to the React UI for the dashboard. It is a
@@ -236,11 +240,220 @@ func (m *Repository) ProbeAPI(w http.ResponseWriter, r *http.Request) {
 	m.writeJSON(w, results)
 }
 
-// WhoisAPI serves the raw WHOIS record as JSON ({ "whois": "..." }).
-func (m *Repository) WhoisAPI(w http.ResponseWriter, r *http.Request) {
-	whoisInfo, err := network.WhoisLookupRaw(m.App.Domain)
+// xssScanTimeout bounds a whole dalfox run so a slow or stuck scan cannot hold
+// the request open indefinitely.
+const xssScanTimeout = 120 * time.Second
+
+// writeAPIError writes { "error": msg } with the given status, logging an
+// encode failure rather than letting it escape.
+func (m *Repository) writeAPIError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(map[string]string{"error": msg}); err != nil {
+		m.App.ZeroLog.Error().Err(err).Msg("failed to encode error response")
+	}
+}
+
+// XSSAPI runs the external dalfox scanner against a client-supplied URL
+// (POST { "url": "https://host/path?param=value" }) and returns the findings.
+// This is an active check: dalfox sends live XSS payloads to the target, so the
+// URL is caller-supplied and opt-in from the UI. When dalfox is not installed
+// the response is 501 with a distinct { "error": ..., "dalfox_installed": false }
+// so the UI can show an install hint rather than a generic failure.
+func (m *Repository) XSSAPI(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		URL        string `json:"url"`
+		SkipMining bool   `json:"skip_mining"`
+		Cookie     string `json:"cookie"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req); err != nil {
+		m.writeAPIError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), xssScanTimeout)
+	defer cancel()
+
+	result, err := xss.Scan(ctx, req.URL, xss.Options{SkipMining: req.SkipMining, Cookie: req.Cookie})
 	if err != nil {
 		m.checkError(err)
+		if errors.Is(err, xss.ErrNotInstalled) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotImplemented)
+			if encErr := json.NewEncoder(w).Encode(map[string]interface{}{
+				"error":            err.Error(),
+				"dalfox_installed": false,
+			}); encErr != nil {
+				m.App.ZeroLog.Error().Err(encErr).Msg("failed to encode xss error response")
+			}
+			return
+		}
+		m.writeAPIError(w, http.StatusBadGateway, err.Error())
+		return
 	}
-	m.writeJSON(w, map[string]string{"whois": whoisInfo})
+	m.writeJSON(w, result)
+}
+
+// --- Crawl + automated multi-target scanning -------------------------------
+
+// crawlTimeout bounds a whole crawl so a large or slow site cannot hold the
+// request open indefinitely.
+const crawlTimeout = 120 * time.Second
+
+// maxScanTargets caps how many targets one scan job will accept so a huge
+// discovered set cannot tie up the server.
+const maxScanTargets = 500
+
+// CrawlAPI crawls a seed URL on its own host and statically analyses its JS to
+// discover the scan surface (POST { "url": ..., "depth": N, "max_pages": N,
+// "cookie": "..." }). It is an active operation: it fetches pages and scripts
+// from the target.
+func (m *Repository) CrawlAPI(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		URL      string `json:"url"`
+		Depth    int    `json:"depth"`
+		MaxPages int    `json:"max_pages"`
+		Cookie   string `json:"cookie"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req); err != nil {
+		m.writeAPIError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), crawlTimeout)
+	defer cancel()
+
+	result, err := crawl.Crawl(ctx, req.URL, crawl.Options{
+		MaxDepth: req.Depth,
+		MaxPages: req.MaxPages,
+		Cookie:   req.Cookie,
+	})
+	if err != nil {
+		m.writeAPIError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	m.writeJSON(w, result)
+}
+
+// scanOptionsReq is the JSON projection of xss.Options the UI posts.
+type scanOptionsReq struct {
+	Cookie          string   `json:"cookie"`
+	Headers         []string `json:"headers"`
+	UserAgent       string   `json:"user_agent"`
+	Method          string   `json:"method"`
+	SkipMining      bool     `json:"skip_mining"`
+	SkipMiningDict  bool     `json:"skip_mining_dict"`
+	SkipMiningDOM   bool     `json:"skip_mining_dom"`
+	SkipAST         bool     `json:"skip_ast"`
+	OnlyPoC         string   `json:"only_poc"`
+	BlindURL        string   `json:"blind_url"`
+	RateLimit       int      `json:"rate_limit"`
+	FollowRedirects bool     `json:"follow_redirects"`
+	DeepScan        bool     `json:"deep_scan"`
+	WAFEvasion      bool     `json:"waf_evasion"`
+	StoredXSS       bool     `json:"stored_xss"`
+	SXSSURL         string   `json:"sxss_url"`
+	Workers         int      `json:"workers"`
+	TimeoutSecs     int      `json:"timeout"`
+	DelayMillis     int      `json:"delay"`
+	ScanTimeoutSecs int      `json:"scan_timeout"`
+}
+
+func (o scanOptionsReq) toXSS() xss.Options {
+	return xss.Options{
+		Cookie:          o.Cookie,
+		Headers:         o.Headers,
+		UserAgent:       o.UserAgent,
+		Method:          o.Method,
+		SkipMining:      o.SkipMining,
+		SkipMiningDict:  o.SkipMiningDict,
+		SkipMiningDOM:   o.SkipMiningDOM,
+		SkipAST:         o.SkipAST,
+		OnlyPoC:         o.OnlyPoC,
+		BlindURL:        o.BlindURL,
+		RateLimit:       o.RateLimit,
+		FollowRedirects: o.FollowRedirects,
+		DeepScan:        o.DeepScan,
+		WAFEvasion:      o.WAFEvasion,
+		StoredXSS:       o.StoredXSS,
+		SXSSURL:         o.SXSSURL,
+		Workers:         o.Workers,
+		TimeoutSecs:     o.TimeoutSecs,
+		DelayMillis:     o.DelayMillis,
+		ScanTimeoutSecs: o.ScanTimeoutSecs,
+	}
+}
+
+// TargetAPI returns a seed URL for the XSS crawler, derived from the domain and
+// scheme Bruter was started with (the -domain CLI flag), so the UI can
+// pre-fill the crawl input instead of making the user re-type the target.
+func (m *Repository) TargetAPI(w http.ResponseWriter, r *http.Request) {
+	domain := strings.TrimSpace(m.App.Domain)
+	seed := domain
+	if domain != "" && !strings.Contains(domain, "://") {
+		scheme := m.App.Scheme
+		if scheme == "" {
+			scheme = "https"
+		}
+		seed = scheme + "://" + domain + "/"
+	}
+	m.writeJSON(w, map[string]string{"domain": domain, "scheme": m.App.Scheme, "url": seed})
+}
+
+// ScanStartAPI launches a background scan job over a list of targets with the
+// supplied dalfox options (POST { "targets": [...], "options": {...} }). It
+// returns { "job_id": "..." }. When dalfox is not installed it responds 501
+// (matching XSSAPI) rather than starting a doomed job.
+func (m *Repository) ScanStartAPI(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Targets []string       `json:"targets"`
+		Options scanOptionsReq `json:"options"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		m.writeAPIError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return
+	}
+	if len(req.Targets) == 0 {
+		m.writeAPIError(w, http.StatusBadRequest, "at least one target is required")
+		return
+	}
+	if len(req.Targets) > maxScanTargets {
+		req.Targets = req.Targets[:maxScanTargets]
+	}
+	if !xss.Installed() {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotImplemented)
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":            xss.ErrNotInstalled.Error(),
+			"dalfox_installed": false,
+		}); err != nil {
+			m.App.ZeroLog.Error().Err(err).Msg("failed to encode scan error response")
+		}
+		return
+	}
+
+	job := m.Scans.Start(req.Targets, req.Options.toXSS(), 0)
+	m.writeJSON(w, map[string]string{"job_id": job.ID()})
+}
+
+// ScanStatusAPI returns a snapshot of a scan job (GET /api/scan/{id}) — state,
+// progress and findings — for the UI to poll.
+func (m *Repository) ScanStatusAPI(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	job, ok := m.Scans.Get(id)
+	if !ok {
+		m.writeAPIError(w, http.StatusNotFound, "no such scan job")
+		return
+	}
+	m.writeJSON(w, job.Snapshot())
+}
+
+// ScanStopAPI cancels a running scan job (POST /api/scan/{id}/stop).
+func (m *Repository) ScanStopAPI(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if !m.Scans.Stop(id) {
+		m.writeAPIError(w, http.StatusNotFound, "no such scan job")
+		return
+	}
+	m.writeJSON(w, map[string]bool{"stopped": true})
 }

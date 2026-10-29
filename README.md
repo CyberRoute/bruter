@@ -12,7 +12,6 @@ What does it do?
 - It grabs HostInfo data from Shodan APIs, so you will need a Token to try this out
 - It collects banners for various services FTP, SSH, MYSQL, IRC, SMTP
 - It collects HTTP headers
-- It collects WHOIS query information
 - It brute force directories on WebServers and reports results (200)
 - It provides info from crt.sh about SSL certificates
 - DNS enumeration — A, AAAA, NS, TXT, CNAME, MX, SOA and reverse-DNS (PTR) records
@@ -23,13 +22,16 @@ What does it do?
 - Comprehensive IP info (Robtex) — owning network (ASN/route/whois) and active/passive DNS history
 - **HTTP probing** — resolves and fetches discovered hosts, capturing status, title, server, technology hints, reflective CORS and missing security headers
 - **Subdomain takeover detection** — flags dangling CNAMEs pointing at unclaimed hosting services (GitHub Pages, S3, Heroku, …) using a fingerprint database
+- **XSS scanning** — runs the [dalfox](https://github.com/hahwul/dalfox) scanner (v3) against a supplied URL and reports reflected/DOM cross-site-scripting PoCs with confidence and scan metadata (requires the `dalfox` v3 binary on the server's `PATH` — `brew install dalfox`)
+- **Crawl-driven automated XSS** — a same-host crawler plus static JavaScript analysis discovers the scan surface (parameterised URLs, form actions and JS endpoints), which feeds a background scan job that runs dalfox across every selected target with live progress and streaming findings
 - It supports custom wordlists
 - It produces a Web UI for presentation
 
-> **Note on active checks.** Zone-transfer attempts, subdomain brute-force and
-> HTTP probing send live queries/requests to the target's infrastructure, and
-> the reverse-IP and Robtex lookups query third-party services. Only run Bruter
-> against systems you are authorised to test.
+> **Note on active checks.** Zone-transfer attempts, subdomain brute-force,
+> HTTP probing and XSS scanning send live queries/requests/payloads to the
+> target's infrastructure, and the reverse-IP and Robtex lookups query
+> third-party services. Only run Bruter against systems you are authorised to
+> test.
 
 ## Usage
 ```
@@ -59,8 +61,9 @@ that lives in [`web/`](web/) and is **embedded into the Go binary** via `go:embe
 It presents the scan as tabs — **Dashboard** (host/network, ports, banners,
 headers), **Subdomains** (passive + active brute-force, plus HTTP probing and
 subdomain-takeover detection), **DNS** (records, zone
-transfer, SPF/DMARC, reverse-IP and Robtex), and **WHOIS** — backed by a small
-JSON API that the SPA consumes:
+transfer, SPF/DMARC, reverse-IP and Robtex) and **XSS** (crawl + JS analysis →
+automated dalfox scanning with live findings) — backed by a
+small JSON API that the SPA consumes:
 
 | Endpoint | Description |
 | --- | --- |
@@ -71,7 +74,11 @@ JSON API that the SPA consumes:
 | `GET /api/reverseip` | Reverse-IP lookup — other host names sharing the domain's IP ("neighbours"), via an external source |
 | `GET /api/robtex` | Robtex comprehensive IP view — owning network (ASN/route/whois) and active/passive DNS history, via an external source |
 | `POST /api/probe` | HTTP probe + subdomain-takeover check for a posted list of hosts (`{"hosts":[...]}`) — status, title, server, tech, CORS, missing security headers, takeover flags |
-| `GET /api/whois` | Raw WHOIS record |
+| `POST /api/xss` | Active XSS scan of a single URL (`{"url":"https://host/path?q=1","cookie":"sid=…","skip_mining":false}`) via the dalfox v3 binary — returns `{target, count, pocs, meta}` where each PoC has param, payload, type, severity and confidence (`501` if dalfox is not installed) |
+| `POST /api/crawl` | Same-host crawl + JS analysis of a seed (`{"url":"https://host/","depth":2,"max_pages":100,"cookie":"…"}`) — returns `{seed, pages, targets:[{url, params, source}]}` (source = link/form/js) |
+| `POST /api/scan` | Start a background scan job over many targets (`{"targets":[…],"options":{…}}`, options map to dalfox flags) — returns `{job_id}` (`501` if dalfox is not installed) |
+| `GET /api/scan/{id}` | Poll a scan job — `{state, done, total, findings, targets, …}` (state = queued/running/done/stopped/error); the UI polls this for live progress |
+| `POST /api/scan/{id}/stop` | Cancel a running scan job |
 | `GET /consumer` | Live directory-fuzzing feed (polled by the dashboard) |
 
 Because the UI is embedded, you must build `web/dist` before building the Go
