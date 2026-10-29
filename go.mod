@@ -1,6 +1,6 @@
 module github.com/CyberRoute/bruter
 
-go 1.20
+go 1.27
 
 require (
 	github.com/alexedwards/scs/v2 v2.5.1
