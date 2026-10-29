@@ -175,9 +175,9 @@ func TestBuildArgsComprehensiveOptions(t *testing.T) {
 func TestBuildArgsRejectsUnsafeValues(t *testing.T) {
 	const target = "https://example.com/?q=1"
 	args := buildArgs(target, Options{
-		Method:   "EVIL",                 // not a known verb → dropped
-		BlindURL: "ftp://x",              // not http(s) → dropped
-		SXSSURL:  "javascript:alert(1)",  // not http(s) → dropped (and no --sxss)
+		Method:   "EVIL",                // not a known verb → dropped
+		BlindURL: "ftp://x",             // not http(s) → dropped
+		SXSSURL:  "javascript:alert(1)", // not http(s) → dropped (and no --sxss)
 	})
 	joined := strings.Join(args, " ")
 	for _, gone := range []string{"-X", "EVIL", "-b", "ftp://x", "--sxss-url", "javascript"} {

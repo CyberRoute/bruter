@@ -50,10 +50,10 @@ func TestCrawlDiscoversSurface(t *testing.T) {
 	}
 
 	wantContains := []struct{ substr string }{
-		{"link:/page?id"},      // parameterised link
-		{"form:/search?lang"},  // form action with encoded input names (?lang=&q=)
-		{"js:/api/data?auth"},  // endpoint + param from external script
-		{"js:/inline?token"},   // endpoint + param from inline script
+		{"link:/page?id"},     // parameterised link
+		{"form:/search?lang"}, // form action with encoded input names (?lang=&q=)
+		{"js:/api/data?auth"}, // endpoint + param from external script
+		{"js:/inline?token"},  // endpoint + param from inline script
 	}
 	for _, w := range wantContains {
 		found := false

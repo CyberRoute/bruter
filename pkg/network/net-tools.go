@@ -158,4 +158,3 @@ func FindMX(domain string) (map[string]uint16, error) {
 	}
 	return mx_records, nil
 }
-

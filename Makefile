@@ -1,6 +1,12 @@
 NAME=bruter
 SOURCE=cmd/$(NAME)/*.go
 
+# golangci-lint is pinned so local `make lint` matches CI. If it is not already
+# on PATH, the lint target bootstraps this version into ./bin via `go install`.
+GOLANGCI_LINT_VERSION ?= v2.15.0
+BIN := $(CURDIR)/bin
+GOLANGCI_LINT := $(BIN)/golangci-lint
+
 all: clean ui test lint fmt
 	@echo "Building..."
 	@mkdir -p build
@@ -19,7 +25,15 @@ test: ui
 
 lint:
 	@echo "Running lint..."
-	go list ./... | golangci-lint run
+	@if command -v golangci-lint >/dev/null 2>&1; then \
+		golangci-lint run; \
+	elif [ -x "$(GOLANGCI_LINT)" ]; then \
+		"$(GOLANGCI_LINT)" run; \
+	else \
+		echo "golangci-lint not found; installing $(GOLANGCI_LINT_VERSION) into $(BIN)..."; \
+		GOBIN="$(BIN)" go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION); \
+		"$(GOLANGCI_LINT)" run; \
+	fi
 
 fmt:
 	@echo "Formatting..."
