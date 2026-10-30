@@ -29,10 +29,15 @@ var ErrNotInstalled = errors.New("dalfox is not installed or not on PATH")
 // defaults bound a scan so a single request cannot run away. They are modest
 // because the scan runs synchronously behind an HTTP handler.
 const (
-	defaultWorkers       = 40
-	defaultTimeoutSecs   = 10
-	maxOutputBytes       = 8 << 20 // cap dalfox stdout to 8 MiB
-	defaultDelayMillisec = 0
+	defaultWorkers     = 40
+	defaultTimeoutSecs = 10
+	maxOutputBytes     = 8 << 20 // cap dalfox stdout to 8 MiB
+	maxErrorBytes      = 1 << 20 // cap dalfox stderr to 1 MiB
+	maxWorkers         = 200     // hard cap on -workers
+	maxTimeoutSecs     = 120     // hard cap on -timeout
+	maxDelayMillis     = 60_000  // hard cap on -delay
+	maxScanTimeoutSecs = 15 * 60 // hard cap on -scan-timeout
+	maxRateLimit       = 1000    // hard cap on -rate-limit
 )
 
 // PoC mirrors one object in the `findings` array dalfox v3 emits with
@@ -65,6 +70,30 @@ type Meta struct {
 	TotalRequests  int    `json:"total_requests"`
 	ScanDurationMs int64  `json:"scan_duration_ms"`
 	Incomplete     bool   `json:"incomplete"`
+	// TargetSummary reports the per-target outcome. dalfox emits a report even
+	// when it never reached the target (status "skipped" + an error_code), so
+	// this is what separates a clean scan from a failed one.
+	TargetSummary []TargetSummary `json:"target_summary"`
+}
+
+// TargetSummary is one entry of dalfox v3's meta.target_summary array.
+type TargetSummary struct {
+	Target        string `json:"target"`
+	Status        string `json:"status"` // "clean" | "findings" | "skipped" | ...
+	ErrorCode     string `json:"error_code"`
+	FindingsCount int    `json:"findings_count"`
+}
+
+// ran reports whether dalfox actually scanned this target. Anything other than
+// a clean/findings outcome (typically "skipped" with an error_code) means the
+// target was never tested.
+func (t TargetSummary) ran() bool {
+	switch strings.ToLower(t.Status) {
+	case "clean", "findings":
+		return true
+	default:
+		return false
+	}
 }
 
 // report is the top-level shape of dalfox v3 JSON output: { findings, meta }.
@@ -104,6 +133,10 @@ type Options struct {
 	UserAgent string
 	// Method overrides the HTTP method (-X); ignored unless a known verb.
 	Method string
+	// Data is the request body (-d), typically an urlencoded form such as
+	// "message=test". Required for POST/PUT targets: without it dalfox has no
+	// parameters to inject into.
+	Data string
 
 	// Mining toggles. SkipMining skips all parameter mining (--skip-mining);
 	// the two narrower flags skip only dictionary / DOM mining.
@@ -140,11 +173,29 @@ type Options struct {
 	// reflection-check URL (--sxss-url) and must be http(s).
 	StoredXSS bool
 	SXSSURL   string
+}
 
-	// CustomPayloadFile is a path to a payloads file (--custom-payload). The
-	// caller is responsible for creating it (e.g. the handler writes a temp
-	// file from inline payloads).
-	CustomPayloadFile string
+// Sanitize clamps caller-controlled numeric options to safe ranges so a
+// hand-crafted request cannot ask for an unbounded worker count, a per-target
+// timeout that outlives the job's lifecycle, or a huge delay. Zero keeps its
+// "use the default" meaning and is left alone.
+func Sanitize(o Options) Options {
+	if o.Workers > maxWorkers {
+		o.Workers = maxWorkers
+	}
+	if o.TimeoutSecs > maxTimeoutSecs {
+		o.TimeoutSecs = maxTimeoutSecs
+	}
+	if o.DelayMillis > maxDelayMillis {
+		o.DelayMillis = maxDelayMillis
+	}
+	if o.ScanTimeoutSecs > maxScanTimeoutSecs {
+		o.ScanTimeoutSecs = maxScanTimeoutSecs
+	}
+	if o.RateLimit > maxRateLimit {
+		o.RateLimit = maxRateLimit
+	}
+	return o
 }
 
 // knownMethods bounds -X to real HTTP verbs so an arbitrary string cannot be
@@ -191,8 +242,10 @@ func validateTarget(target string) (string, error) {
 
 // Scan runs dalfox against a single URL and returns the parsed findings. It
 // returns ErrNotInstalled when the binary is missing so the caller can respond
-// distinctly. A non-zero dalfox exit is tolerated as long as it still produced
-// parseable JSON (dalfox can exit non-zero on partial failures).
+// distinctly. A non-zero dalfox exit is tolerated only when it means "findings
+// were reported" (exit 1); exit codes >= 2 and per-target "skipped" summaries
+// are surfaced as errors, because dalfox still prints a well-formed report when
+// it never reached the target.
 func Scan(ctx context.Context, target string, opt Options) (*Result, error) {
 	clean, err := validateTarget(target)
 	if err != nil {
@@ -202,29 +255,34 @@ func Scan(ctx context.Context, target string, opt Options) (*Result, error) {
 		return nil, ErrNotInstalled
 	}
 
+	opt = Sanitize(opt)
 	cmd := exec.CommandContext(ctx, binary, buildArgs(clean, opt)...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout := &limitedBuffer{limit: maxOutputBytes}
+	stderr := &limitedBuffer{limit: maxErrorBytes}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	runErr := cmd.Run()
 
-	// Context cancellation (timeout) is a definitive failure regardless of any
-	// partial output.
+	// Context cancellation (timeout or a cancelled job) is a definitive failure
+	// regardless of any partial output. Distinguish the two so the UI does not
+	// report a user-initiated stop as a timeout.
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		return nil, fmt.Errorf("dalfox scan timed out: %w", ctxErr)
+		if errors.Is(ctxErr, context.DeadlineExceeded) {
+			return nil, fmt.Errorf("dalfox scan timed out: %w", ctxErr)
+		}
+		return nil, fmt.Errorf("dalfox scan cancelled: %w", ctxErr)
 	}
 
-	out := bytes.TrimSpace(stdout.Bytes())
-	if len(out) > maxOutputBytes {
-		out = out[:maxOutputBytes]
+	if stdout.overflow {
+		return nil, fmt.Errorf("dalfox output exceeded %d MiB; narrow the scan (fewer params, skip mining) and retry", maxOutputBytes>>20)
 	}
 
-	rep, parseErr := parseReport(out)
+	rep, parseErr := parseReport(bytes.TrimSpace(stdout.Bytes()))
 	if parseErr != nil {
 		// No parseable JSON: surface dalfox's own stderr if any, else the run
 		// error, so the failure is legible in the UI.
-		msg := strings.TrimSpace(stderr.String())
+		msg := briefError(string(stderr.Bytes()))
 		if msg == "" && runErr != nil {
 			msg = runErr.Error()
 		}
@@ -234,6 +292,10 @@ func Scan(ctx context.Context, target string, opt Options) (*Result, error) {
 		return nil, fmt.Errorf("dalfox produced no parseable output: %s", msg)
 	}
 
+	if err := scanFailure(runErr, rep.Meta); err != nil {
+		return nil, err
+	}
+
 	pocs := filterByType(rep.Findings, opt.OnlyPoC)
 	return &Result{
 		Target: clean,
@@ -241,6 +303,45 @@ func Scan(ctx context.Context, target string, opt Options) (*Result, error) {
 		PoCs:   pocs,
 		Meta:   rep.Meta,
 	}, nil
+}
+
+// scanFailure decides whether a dalfox run actually scanned the target. dalfox
+// exits 0 for a clean scan, 1 when it reported findings, and >= 2 when the scan
+// failed — but it emits valid JSON in all three cases, so parseability alone
+// cannot be treated as success. The per-target summary is authoritative when
+// present: a "skipped" entry carries an error_code such as CONNECTION_FAILED.
+func scanFailure(runErr error, meta Meta) error {
+	var skipped []string
+	for _, ts := range meta.TargetSummary {
+		if ts.ran() {
+			return nil
+		}
+		reason := ts.ErrorCode
+		if reason == "" {
+			reason = ts.Status
+		}
+		if reason == "" {
+			reason = "target not scanned"
+		}
+		skipped = append(skipped, fmt.Sprintf("%s (%s)", ts.Target, reason))
+	}
+	if len(skipped) > 0 {
+		return fmt.Errorf("dalfox did not scan the target: %s", strings.Join(skipped, "; "))
+	}
+	if code := exitCode(runErr); code >= 2 {
+		return fmt.Errorf("dalfox exited with status %d", code)
+	}
+	return nil
+}
+
+// exitCode returns the process exit status, or -1 when runErr is not an exit
+// error (e.g. the process could not be started).
+func exitCode(err error) int {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return -1
 }
 
 // pocTypes is the set of finding-type codes dalfox emits (and --only-poc / the
@@ -302,7 +403,7 @@ func buildArgs(clean string, opt Options) []string {
 	}
 	delay := opt.DelayMillis
 	if delay < 0 {
-		delay = defaultDelayMillisec
+		delay = 0
 	}
 
 	args := []string{
@@ -369,14 +470,14 @@ func buildArgs(clean string, opt Options) []string {
 	if m := strings.ToUpper(strings.TrimSpace(opt.Method)); knownMethods[m] {
 		args = append(args, "-X", m)
 	}
+	if d := strings.TrimSpace(opt.Data); d != "" {
+		args = append(args, "-d", d)
+	}
 	if isHTTPURL(opt.BlindURL) {
 		args = append(args, "-b", strings.TrimSpace(opt.BlindURL))
 	}
 	if opt.StoredXSS && isHTTPURL(opt.SXSSURL) {
 		args = append(args, "--sxss-url", strings.TrimSpace(opt.SXSSURL))
-	}
-	if p := strings.TrimSpace(opt.CustomPayloadFile); p != "" {
-		args = append(args, "--custom-payload", p)
 	}
 	return args
 }
@@ -395,4 +496,46 @@ func parseReport(out []byte) (report, error) {
 		rep.Findings = []PoC{}
 	}
 	return rep, nil
+}
+
+// limitedBuffer is an io.Writer that accepts at most limit bytes and records
+// the overflow instead of growing without bound. Overflow is reported as an
+// explicit error by the caller: silently truncating would cut the JSON report
+// mid-document and throw away findings that had already been collected.
+type limitedBuffer struct {
+	buf      bytes.Buffer
+	limit    int
+	overflow bool
+}
+
+func (l *limitedBuffer) Write(p []byte) (int, error) {
+	if !l.overflow && l.buf.Len()+len(p) > l.limit {
+		l.overflow = true
+		l.buf.Reset()
+	}
+	if l.overflow {
+		// Keep accepting (and discarding) so the child process is never blocked
+		// on a full pipe.
+		return len(p), nil
+	}
+	return l.buf.Write(p)
+}
+
+// Bytes returns the captured output.
+func (l *limitedBuffer) Bytes() []byte { return l.buf.Bytes() }
+
+// briefError compacts a child process's stderr into a one-line message suitable
+// for an API response, so a stack trace or a long log dump cannot leak paths or
+// swallow the UI.
+func briefError(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	s = strings.Join(strings.Fields(s), " ")
+	const maxLen = 300
+	if len(s) > maxLen {
+		s = s[:maxLen] + "…"
+	}
+	return s
 }

@@ -150,12 +150,21 @@ export interface XssPoc {
   message_str: string;
 }
 
+export interface XssTargetSummary {
+  target: string;
+  // "clean" | "findings" | "skipped" (skipped carries an error_code)
+  status: string;
+  error_code?: string;
+  findings_count: number;
+}
+
 export interface XssMeta {
   dalfox_version: string;
   failed_requests: number;
   total_requests: number;
   scan_duration_ms: number;
   incomplete: boolean;
+  target_summary?: XssTargetSummary[];
 }
 
 export interface XssResult {
@@ -169,7 +178,15 @@ export interface CrawlTarget {
   url: string;
   params: string[];
   source: string; // "link" | "form" | "js"
+  // Set on non-GET forms: how to submit them, and the page they were found on.
+  method?: string;
+  data?: string;
+  reflect_url?: string;
 }
+
+// ScanTarget is what /api/scan accepts per target; method and data are
+// per-target overrides so a POST form is scanned as a POST.
+export type ScanTarget = Pick<CrawlTarget, "url" | "method" | "data" | "reflect_url">;
 
 export interface CrawlResult {
   seed: string;
@@ -206,9 +223,13 @@ export interface ScanOptions {
 
 export interface ScanTargetStatus {
   url: string;
-  state: string; // pending | running | done | error
+  method?: string;
+  state: string; // pending | running | done | error | stopped
   findings: number;
   error?: string;
+  // Per-target dalfox report metadata: lets the UI tell a clean scan apart from
+  // one that was incomplete.
+  meta?: XssMeta;
 }
 
 export interface ScanJob {
@@ -218,6 +239,8 @@ export interface ScanJob {
   done: number;
   findings: XssPoc[];
   targets: ScanTargetStatus[];
+  // True when the findings cap was hit, i.e. not everything was stored.
+  truncated?: boolean;
   started_at: string;
   finished_at?: string;
   error?: string;
@@ -293,7 +316,7 @@ export const api = {
   crawl: (body: { url: string; depth?: number; max_pages?: number; cookie?: string }) =>
     postJSON<CrawlResult>("/api/crawl", body),
   // Start a background scan job over many targets; returns the job id.
-  startScan: (targets: string[], options: ScanOptions) =>
+  startScan: (targets: ScanTarget[], options: ScanOptions) =>
     postJSON<{ job_id: string }>("/api/scan", { targets, options }),
   // Poll a scan job's live state, progress and findings.
   scanStatus: (id: string) => getJSON<ScanJob>(`/api/scan/${encodeURIComponent(id)}`),

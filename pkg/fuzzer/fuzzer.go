@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -116,7 +117,13 @@ func parseRetryAfter(v string) time.Duration {
 }
 
 func Dirsearch(Mu *sync.Mutex, app *config.AppConfig, domain, path string, progress float32, verbose bool) {
-	urjoin := domain + path
+	// Prepend the scheme so the authority is unambiguous: url.Parse would read
+	// a bare "host:port/path" as scheme:opaque and mangle a non-standard port.
+	base := domain
+	if !strings.Contains(base, "://") {
+		base = app.Scheme + "://" + base
+	}
+	urjoin := base + path
 	url, err := NormalizeURL(urjoin, app.Scheme)
 	if err != nil {
 		app.ZeroLog.Error().Err(err).Msgf("Error parsing URL: %s", urjoin)

@@ -1,7 +1,12 @@
 package xss
 
 import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -266,4 +271,139 @@ func TestParseReport(t *testing.T) {
 			t.Fatal("want error on invalid json, got nil")
 		}
 	})
+}
+
+func TestScanFailureDetectsSkippedTarget(t *testing.T) {
+	// Real dalfox v3 output for an unreachable target: exit 2, valid JSON, zero
+	// findings and meta.failed_requests = 0. Parseability is not success.
+	meta := Meta{TargetSummary: []TargetSummary{{
+		Target: "http://127.0.0.1:9/?q=1", Status: "skipped", ErrorCode: "CONNECTION_FAILED",
+	}}}
+	err := scanFailure(nil, meta)
+	if err == nil || !strings.Contains(err.Error(), "CONNECTION_FAILED") {
+		t.Fatalf("a skipped target must be an error carrying the dalfox reason, got %v", err)
+	}
+}
+
+func TestScanFailureAcceptsScannedTargets(t *testing.T) {
+	for _, status := range []string{"clean", "findings"} {
+		meta := Meta{TargetSummary: []TargetSummary{{Target: "http://x/", Status: status}}}
+		if err := scanFailure(nil, meta); err != nil {
+			t.Fatalf("status %q should be a successful scan, got %v", status, err)
+		}
+	}
+}
+
+func TestScanFailureUsesExitCodeWithoutSummary(t *testing.T) {
+	for _, tc := range []struct {
+		status  int
+		wantErr bool
+	}{
+		{0, false}, // clean
+		{1, false}, // findings
+		{2, true},  // scan error
+	} {
+		runErr := exec.Command("sh", "-c", "exit "+strconv.Itoa(tc.status)).Run()
+		if got := scanFailure(runErr, Meta{}) != nil; got != tc.wantErr {
+			t.Fatalf("exit %d: wantErr=%v, got %v", tc.status, tc.wantErr, runErr)
+		}
+	}
+}
+
+func TestLimitedBufferBoundsMemory(t *testing.T) {
+	b := &limitedBuffer{limit: 16}
+	if _, err := b.Write([]byte("0123456789")); err != nil {
+		t.Fatal(err)
+	}
+	if b.overflow {
+		t.Fatal("should not overflow below the limit")
+	}
+	if _, err := b.Write([]byte("0123456789abcdef")); err != nil {
+		t.Fatal(err)
+	}
+	if !b.overflow {
+		t.Fatal("expected overflow to be recorded")
+	}
+	if got := len(b.Bytes()); got > 16 {
+		t.Fatalf("buffer kept growing past the limit: %d bytes", got)
+	}
+	// Writes after the overflow are still accepted (and discarded) so the child
+	// process never blocks on a full pipe.
+	n, err := b.Write([]byte("more"))
+	if err != nil || n != 4 {
+		t.Fatalf("post-overflow write = (%d, %v)", n, err)
+	}
+}
+
+func TestSanitizeClampsHostileOptions(t *testing.T) {
+	o := Sanitize(Options{
+		Workers: 10_000_000, TimeoutSecs: 10_000_000, DelayMillis: 10_000_000,
+		ScanTimeoutSecs: 10_000_000, RateLimit: 10_000_000,
+	})
+	if o.Workers != maxWorkers || o.TimeoutSecs != maxTimeoutSecs ||
+		o.DelayMillis != maxDelayMillis || o.ScanTimeoutSecs != maxScanTimeoutSecs ||
+		o.RateLimit != maxRateLimit {
+		t.Fatalf("expected every numeric option clamped, got %+v", o)
+	}
+	// Zero means "use the default" and must survive.
+	if z := Sanitize(Options{}); z.Workers != 0 || z.ScanTimeoutSecs != 0 {
+		t.Fatalf("zero-value options must pass through untouched: %+v", z)
+	}
+}
+
+func TestBriefErrorCompactsStderr(t *testing.T) {
+	long := strings.Repeat("trace line with /private/path\n", 100)
+	got := briefError(long)
+	if strings.Contains(got, "\n") {
+		t.Fatal("stderr must be compacted to one line")
+	}
+	if len(got) > 303 { // 300 bytes plus the UTF-8 ellipsis
+		t.Fatalf("stderr should be truncated, got %d bytes", len(got))
+	}
+	if briefError("   ") != "" {
+		t.Fatal("blank stderr should stay empty")
+	}
+}
+
+// fakeDalfox installs a stub dalfox binary on PATH that prints stdout and exits
+// with status, so Scan's real exit-code/report handling is exercised.
+func fakeDalfox(t *testing.T, stdout string, status int) {
+	t.Helper()
+	dir := t.TempDir()
+	script := "#!/bin/sh\ncat <<'REPORT'\n" + stdout + "\nREPORT\nexit " + strconv.Itoa(status) + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "dalfox"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":/usr/bin:/bin")
+}
+
+func TestScanSurfacesFailedTarget(t *testing.T) {
+	fakeDalfox(t, `{"findings":[],"meta":{"dalfox_version":"3.2.4",`+
+		`"target_summary":[{"target":"http://example.com/","status":"skipped","error_code":"CONNECTION_FAILED"}]}}`, 2)
+	res, err := Scan(context.Background(), "http://example.com/?q=1", Options{})
+	if err == nil || !strings.Contains(err.Error(), "CONNECTION_FAILED") {
+		t.Fatalf("an unreachable target must not look clean, got res=%+v err=%v", res, err)
+	}
+}
+
+func TestScanAcceptsFindingsExitStatus(t *testing.T) {
+	fakeDalfox(t, `{"findings":[{"type":"V","param":"q","severity":"High"}],`+
+		`"meta":{"target_summary":[{"target":"http://example.com/","status":"findings","findings_count":1}]}}`, 1)
+	res, err := Scan(context.Background(), "http://example.com/?q=1", Options{})
+	if err != nil {
+		t.Fatalf("exit 1 with findings is a successful scan, got %v", err)
+	}
+	if res.Count != 1 || len(res.Meta.TargetSummary) != 1 {
+		t.Fatalf("expected one finding and the target summary to be parsed, got %+v", res)
+	}
+}
+
+func TestScanRejectsOversizedOutput(t *testing.T) {
+	// More than the 8 MiB report cap: the run must fail loudly rather than
+	// truncating the JSON and discarding the findings.
+	fakeDalfox(t, strings.Repeat("x", maxOutputBytes+1024), 0)
+	_, err := Scan(context.Background(), "http://example.com/?q=1", Options{})
+	if err == nil || !strings.Contains(err.Error(), "exceeded") {
+		t.Fatalf("oversized output must be an explicit error, got %v", err)
+	}
 }

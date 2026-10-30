@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -90,4 +91,79 @@ func keys(m map[string]bool) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+func TestCrawlCapsScriptsPerPage(t *testing.T) {
+	var fetched int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		var b strings.Builder
+		for i := 0; i < maxScriptsPerPage+10; i++ {
+			b.WriteString(`<script src="/js?i=1"></script>`)
+		}
+		_, _ = w.Write([]byte(b.String()))
+	})
+	mux.HandleFunc("/js", func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&fetched, 1)
+		w.Header().Set("Content-Type", "application/javascript")
+		_, _ = w.Write([]byte(`var a = 1;`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	if _, err := Crawl(context.Background(), srv.URL, Options{MaxDepth: 1, MaxPages: 5}); err != nil {
+		t.Fatalf("crawl error: %v", err)
+	}
+	if got := atomic.LoadInt32(&fetched); got > maxScriptsPerPage {
+		t.Fatalf("one page fetched %d scripts, cap is %d", got, maxScriptsPerPage)
+	}
+}
+
+func TestIsScriptContentType(t *testing.T) {
+	for _, ct := range []string{"application/javascript", "text/javascript", "application/x-javascript", "text/ecmascript; charset=utf-8"} {
+		if !isScriptContentType(ct) {
+			t.Errorf("%q should be treated as JavaScript", ct)
+		}
+	}
+	for _, ct := range []string{"text/html", "application/json", ""} {
+		if isScriptContentType(ct) {
+			t.Errorf("%q should not be treated as JavaScript", ct)
+		}
+	}
+}
+
+func TestCrawlPostFormKeepsMethodAndBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<form method="post" action="/submit"><input name="msg"></form>` +
+			`<form action="/search"><input name="q"></form>`))
+	}))
+	defer srv.Close()
+
+	res, err := Crawl(context.Background(), srv.URL, Options{MaxDepth: 1, MaxPages: 5})
+	if err != nil {
+		t.Fatalf("crawl error: %v", err)
+	}
+	var post, get *Target
+	for i := range res.Targets {
+		switch {
+		case strings.Contains(res.Targets[i].URL, "/submit"):
+			post = &res.Targets[i]
+		case strings.Contains(res.Targets[i].URL, "/search"):
+			get = &res.Targets[i]
+		}
+	}
+	if post == nil || get == nil {
+		t.Fatalf("expected both forms as targets, got %+v", res.Targets)
+	}
+	if post.Method != http.MethodPost || post.Data != "msg=" || strings.Contains(post.URL, "?") {
+		t.Fatalf("POST form must keep a clean URL and a body: %+v", post)
+	}
+	if post.ReflectURL == "" {
+		t.Fatalf("POST form should record the page it was found on: %+v", post)
+	}
+	if get.Method != "" || get.Data != "" || !strings.Contains(get.URL, "?q=") {
+		t.Fatalf("GET form should carry its params in the URL: %+v", get)
+	}
 }

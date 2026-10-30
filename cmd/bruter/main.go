@@ -16,7 +16,6 @@ import (
 	"math"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -44,15 +43,16 @@ var session *scs.SessionManager
 var stats Statistics
 
 var (
-	Domain     = flag.String("domain", "", "Domain to scan")
-	Apikey     = flag.String("shodan", "", "Dhodan API key")
-	Address    = flag.String("address", "127.0.0.1", "IP address to bind the web UI server to.")
-	Extension  = flag.String("extension", "js", "File extension.")
-	Dictionary = flag.String("dictionary", "db/apache-list", "File to use for enumeration.")
-	Workers    = flag.Int("workers", 0, "Default is 0, if workers is less than or equal than zero, it will be auto scaled to the number of logical CPUs usable by the current process.")
-	Delay      = flag.Duration("delay", 0, "Delay before each request, per worker (e.g. 100ms). Default 0 (no delay).")
-	MaxRate    = flag.Int("max-rate", 0, "Global cap on requests per second across all workers. Default 0 (unlimited).")
-	Verbose    = flag.Bool("verbose", false, "Verbosity")
+	Domain      = flag.String("domain", "", "Domain to scan")
+	Apikey      = flag.String("shodan", "", "Dhodan API key")
+	Address     = flag.String("address", "127.0.0.1", "IP address to bind the web UI server to.")
+	AllowRemote = flag.Bool("allow-remote", false, "Allow the UI to be reached from non-loopback addresses. The UI has no authentication and its scan endpoints make live requests, so only use this on a trusted network.")
+	Extension   = flag.String("extension", "js", "File extension.")
+	Dictionary  = flag.String("dictionary", "db/apache-list", "File to use for enumeration.")
+	Workers     = flag.Int("workers", 0, "Default is 0, if workers is less than or equal than zero, it will be auto scaled to the number of logical CPUs usable by the current process.")
+	Delay       = flag.Duration("delay", 0, "Delay before each request, per worker (e.g. 100ms). Default 0 (no delay).")
+	MaxRate     = flag.Int("max-rate", 0, "Global cap on requests per second across all workers. Default 0 (unlimited).")
+	Verbose     = flag.Bool("verbose", false, "Verbosity")
 )
 
 func main() {
@@ -62,9 +62,14 @@ func main() {
 		flag.Usage()
 		os.Exit(1)
 	}
-	// Accept a full URL (e.g. https://host/path) and reduce it to the bare host,
-	// since the resolver and scanner expect a hostname.
-	*Domain = sanitizeDomain(*Domain)
+	// Accept a full URL (e.g. http://host:8081/path). Keep the scheme and the
+	// host[:port] authority for the HTTP probes, and separately reduce the
+	// input to a bare host for DNS / subdomain / certificate enumeration.
+	explicitScheme, target := network.ParseTarget(*Domain)
+	*Domain = network.NormalizeDomain(*Domain)
+	if target == "" {
+		target = *Domain
+	}
 	r := color.New(color.FgRed)
 	signals := make(chan os.Signal, 2)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
@@ -77,14 +82,34 @@ func main() {
 
 	logger := log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 	app.ZeroLog = &logger
+
+	// Refuse to expose the UI before doing any work: it has no authentication,
+	// and the crawl/scan endpoints make live requests on the caller's behalf.
+	app.BindAddr = *Address
+	app.AllowRemote = *AllowRemote
+	if !network.IsLoopbackAddr(*Address) && !*AllowRemote {
+		logger.Fatal().Msgf("Refusing to listen on %q without -allow-remote: the UI has no authentication and its scan endpoints make live requests.", *Address)
+	}
+	if *AllowRemote {
+		logger.Warn().Msg("Remote UI access enabled (-allow-remote): anyone who can reach this port can run scans.")
+	}
+
 	IP, err := network.ResolveByName(*Domain)
 	if err != nil {
 		logger.Fatal().Msg(fmt.Sprintf("Unable to resolve %s", *Domain))
 	}
 	logger.Info().Msg(fmt.Sprintf("Scanning IP %s %s", IP, "OK"))
 
-	app.Scheme = network.DetectScheme(*Domain)
-	logger.Info().Msgf("Using %s:// to probe %s", app.Scheme, *Domain)
+	app.Target = target
+	// Honour a scheme the user gave explicitly; only probe for one when the
+	// target was a bare host. DetectScheme probes the authority (including any
+	// port), so a non-standard port is tested rather than the default 80/443.
+	if explicitScheme == "http" || explicitScheme == "https" {
+		app.Scheme = explicitScheme
+	} else {
+		app.Scheme = network.DetectScheme(target)
+	}
+	logger.Info().Msgf("Using %s:// to probe %s", app.Scheme, target)
 
 	app.InProduction = false
 	session = scs.New()
@@ -132,33 +157,13 @@ func main() {
 	total := len(list)
 	shift := 1
 	fuzzer.Configure(*Delay, *MaxRate)
-	queue := createQueue(&app.Mu, *Domain, list, shift, total, *Verbose)
+	queue := createQueue(&app.Mu, app.Target, list, shift, total, *Verbose)
 
 	queue.WaitDone()
 
 	logger.Info().Msg(fmt.Sprintf("Wordlist of %d paths", stats.Inputs))
 	logger.Info().Msg("All tasks completed, press Ctrl-C to quit.")
 	select {}
-}
-
-// sanitizeDomain reduces a user-supplied target to a bare hostname. It accepts
-// full URLs ("https://host/path"), host:port, and trailing paths.
-func sanitizeDomain(input string) string {
-	input = strings.TrimSpace(input)
-	if strings.Contains(input, "://") {
-		if u, err := url.Parse(input); err == nil && u.Hostname() != "" {
-			return u.Hostname()
-		}
-	}
-	// Strip any path component.
-	if i := strings.IndexByte(input, '/'); i >= 0 {
-		input = input[:i]
-	}
-	// Strip a port if present.
-	if host, _, err := net.SplitHostPort(input); err == nil {
-		input = host
-	}
-	return input
 }
 
 func createQueue(mu *sync.Mutex, domain string, list []string, shift, total int, verbose bool) *async.WorkQueue {

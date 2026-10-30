@@ -65,7 +65,13 @@ func (sc *ConfigServer) RunConfiguration(app *config.AppConfig) models.HomeArgs 
 		},
 		func() {
 			var herr error
-			headers, herr = sh.Head(app.Scheme + "://" + app.Domain)
+			// Use Target (host[:port]) not Domain, so the header probe hits the
+			// port the user named rather than the default 80/443.
+			authority := app.Target
+			if authority == "" {
+				authority = app.Domain
+			}
+			headers, herr = sh.Head(app.Scheme + "://" + authority)
 			if herr != nil {
 				sc.App.ZeroLog.Warn().Err(herr).Msg("could not grab HTTP headers from target")
 			}

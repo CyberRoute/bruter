@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/CyberRoute/bruter/pkg/models"
 	"github.com/CyberRoute/bruter/pkg/network"
 	"github.com/CyberRoute/bruter/pkg/probe"
+	"github.com/CyberRoute/bruter/pkg/scan"
 	"github.com/CyberRoute/bruter/pkg/ssl"
 	"github.com/CyberRoute/bruter/pkg/subdomain"
 	"github.com/CyberRoute/bruter/pkg/xss"
@@ -241,12 +243,23 @@ func (m *Repository) ProbeAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 // xssScanTimeout bounds a whole dalfox run so a slow or stuck scan cannot hold
-// the request open indefinitely.
-const xssScanTimeout = 120 * time.Second
+// the request open indefinitely. xssGracefulTimeout is handed to dalfox itself
+// (--scan-timeout) so it stops gracefully and emits its partial findings rather
+// than being killed at the hard deadline and losing everything.
+const (
+	xssScanTimeout     = 120 * time.Second
+	xssGracefulTimeout = 90
+)
 
 // writeAPIError writes { "error": msg } with the given status, logging an
-// encode failure rather than letting it escape.
+// encode failure rather than letting it escape. Messages are compacted so a
+// child process's stderr cannot flood the response.
 func (m *Repository) writeAPIError(w http.ResponseWriter, status int, msg string) {
+	msg = strings.Join(strings.Fields(msg), " ")
+	const maxErrLen = 500
+	if len(msg) > maxErrLen {
+		msg = msg[:maxErrLen] + "…"
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(map[string]string{"error": msg}); err != nil {
@@ -258,7 +271,7 @@ func (m *Repository) writeAPIError(w http.ResponseWriter, status int, msg string
 // (POST { "url": "https://host/path?param=value" }) and returns the findings.
 // This is an active check: dalfox sends live XSS payloads to the target, so the
 // URL is caller-supplied and opt-in from the UI. When dalfox is not installed
-// the response is 501 with a distinct { "error": ..., "dalfox_installed": false }
+// the response is 503 with a distinct { "error": ..., "dalfox_installed": false }
 // so the UI can show an install hint rather than a generic failure.
 func (m *Repository) XSSAPI(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -274,12 +287,17 @@ func (m *Repository) XSSAPI(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), xssScanTimeout)
 	defer cancel()
 
-	result, err := xss.Scan(ctx, req.URL, xss.Options{SkipMining: req.SkipMining, Cookie: req.Cookie})
+	opts := xss.Sanitize(xss.Options{
+		SkipMining:      req.SkipMining,
+		Cookie:          req.Cookie,
+		ScanTimeoutSecs: xssGracefulTimeout,
+	})
+	result, err := xss.Scan(ctx, req.URL, opts)
 	if err != nil {
 		m.checkError(err)
 		if errors.Is(err, xss.ErrNotInstalled) {
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotImplemented)
+			w.WriteHeader(http.StatusServiceUnavailable)
 			if encErr := json.NewEncoder(w).Encode(map[string]interface{}{
 				"error":            err.Error(),
 				"dalfox_installed": false,
@@ -389,24 +407,33 @@ func (o scanOptionsReq) toXSS() xss.Options {
 // pre-fill the crawl input instead of making the user re-type the target.
 func (m *Repository) TargetAPI(w http.ResponseWriter, r *http.Request) {
 	domain := strings.TrimSpace(m.App.Domain)
-	seed := domain
-	if domain != "" && !strings.Contains(domain, "://") {
+	// Build the seed from Target (host[:port]) so the crawler pre-fill keeps an
+	// explicit port (e.g. a local DVWA on :8081); Domain is the bare host and
+	// would drop it. Fall back to Domain when Target was not set.
+	authority := strings.TrimSpace(m.App.Target)
+	if authority == "" {
+		authority = domain
+	}
+	seed := authority
+	if authority != "" && !strings.Contains(authority, "://") {
 		scheme := m.App.Scheme
 		if scheme == "" {
 			scheme = "https"
 		}
-		seed = scheme + "://" + domain + "/"
+		seed = scheme + "://" + authority + "/"
 	}
 	m.writeJSON(w, map[string]string{"domain": domain, "scheme": m.App.Scheme, "url": seed})
 }
 
 // ScanStartAPI launches a background scan job over a list of targets with the
-// supplied dalfox options (POST { "targets": [...], "options": {...} }). It
-// returns { "job_id": "..." }. When dalfox is not installed it responds 501
-// (matching XSSAPI) rather than starting a doomed job.
+// supplied dalfox options (POST { "targets": [...], "options": {...} }). Each
+// target is a URL string or a { url, method, data, reflect_url } object. It
+// returns { "job_id": "..." }. When dalfox is not installed it responds 503
+// (matching XSSAPI) rather than starting a doomed job, and when the job
+// manager is at capacity it responds 429 instead of spawning more processes.
 func (m *Repository) ScanStartAPI(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Targets []string       `json:"targets"`
+		Targets []scan.Target  `json:"targets"`
 		Options scanOptionsReq `json:"options"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
@@ -417,12 +444,16 @@ func (m *Repository) ScanStartAPI(w http.ResponseWriter, r *http.Request) {
 		m.writeAPIError(w, http.StatusBadRequest, "at least one target is required")
 		return
 	}
+	// Reject rather than silently truncate: a caller selecting more targets
+	// than the cap must know some of them were not scanned.
 	if len(req.Targets) > maxScanTargets {
-		req.Targets = req.Targets[:maxScanTargets]
+		m.writeAPIError(w, http.StatusBadRequest,
+			fmt.Sprintf("too many targets: got %d, maximum is %d", len(req.Targets), maxScanTargets))
+		return
 	}
 	if !xss.Installed() {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotImplemented)
+		w.WriteHeader(http.StatusServiceUnavailable)
 		if err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"error":            xss.ErrNotInstalled.Error(),
 			"dalfox_installed": false,
@@ -432,7 +463,15 @@ func (m *Repository) ScanStartAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	job := m.Scans.Start(req.Targets, req.Options.toXSS(), 0)
+	job, err := m.Scans.Start(req.Targets, xss.Sanitize(req.Options.toXSS()), 0)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, scan.ErrTooManyJobs) {
+			status = http.StatusTooManyRequests
+		}
+		m.writeAPIError(w, status, err.Error())
+		return
+	}
 	m.writeJSON(w, map[string]string{"job_id": job.ID()})
 }
 

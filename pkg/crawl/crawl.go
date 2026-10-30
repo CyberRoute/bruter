@@ -30,11 +30,12 @@ var errInvalidSeed = errors.New("seed must be an absolute http(s) URL with a hos
 
 // Defaults bound a crawl so it cannot run away on a large or hostile site.
 const (
-	defaultMaxDepth = 2
-	defaultMaxPages = 100
-	defaultWorkers  = 10
-	maxBodyRead     = 2 << 20 // 2 MiB per page/script
-	requestTimeout  = 10 * time.Second
+	defaultMaxDepth   = 2
+	defaultMaxPages   = 100
+	defaultWorkers    = 10
+	maxBodyRead       = 2 << 20 // 2 MiB per page/script
+	maxScriptsPerPage = 25      // bound script fetching so one page cannot eat the crawl budget
+	requestTimeout    = 10 * time.Second
 )
 
 // client mirrors pkg/probe's client: pooled connections, certs not verified
@@ -53,6 +54,16 @@ type Target struct {
 	URL    string   `json:"url"`
 	Params []string `json:"params"`
 	Source string   `json:"source"` // "link" | "form" | "js"
+
+	// Method and Data describe how to scan a non-GET form. A POST form cannot
+	// be scanned by putting its fields in the query string, so its action URL
+	// is kept clean and its fields become the request body instead.
+	Method string `json:"method,omitempty"`
+	Data   string `json:"data,omitempty"`
+	// ReflectURL is the page a form was found on. Stored-XSS payloads submitted
+	// to a form action typically render on that page, so it is the natural
+	// candidate for dalfox's --sxss-url.
+	ReflectURL string `json:"reflect_url,omitempty"`
 }
 
 // Options tunes a crawl. The zero value uses the package defaults.
@@ -69,6 +80,18 @@ type Result struct {
 	Seed    string   `json:"seed"`
 	Pages   int      `json:"pages"`
 	Targets []Target `json:"targets"`
+}
+
+// logoutRe matches links that would end the crawler's own session (logging it
+// out), matched case-insensitively against the URL path. Following such a link
+// during an authenticated crawl (e.g. DVWA's /logout.php) destroys the session
+// server-side and makes every subsequent page redirect to login, so these
+// links are discovered but never fetched or queued.
+var logoutRe = regexp.MustCompile(`(?i)(log[-_]?out|sign[-_]?out|log[-_]?off)`)
+
+// destroysSession reports whether following u would likely end the session.
+func destroysSession(u *url.URL) bool {
+	return logoutRe.MatchString(u.Path)
 }
 
 // jsURLRe matches quoted absolute URLs and root-relative paths inside scripts.
@@ -94,6 +117,15 @@ func Crawl(ctx context.Context, seed string, opt Options) (*Result, error) {
 		workers = defaultWorkers
 	}
 
+	// Confine the crawl to the seed's directory: a seed of
+	// "/vulnerabilities/xss_r/" stays under that path instead of following the
+	// site-wide nav to every other page. A root seed ("/") yields the prefix
+	// "/", i.e. the whole host, preserving the previous behaviour.
+	scopePrefix := scopeDir(base.Path)
+	inScope := func(u *url.URL) bool {
+		return sameHost(base, u) && strings.HasPrefix(u.Path, scopePrefix)
+	}
+
 	visited := map[string]bool{base.String(): true}
 	targetSet := map[string]Target{} // key: url + "\x00" + params
 	frontier := []string{base.String()}
@@ -103,8 +135,18 @@ func Crawl(ctx context.Context, seed string, opt Options) (*Result, error) {
 		if t.URL == "" {
 			return
 		}
+		// Keep only targets within the crawl scope (same host + path prefix);
+		// e.g. a login form action discovered on an in-scope page is dropped.
+		if u, err := url.Parse(t.URL); err != nil || !inScope(u) {
+			return
+		}
+		// Always emit a (possibly empty) array, never a nil slice: Go marshals
+		// nil as JSON null, and the UI calls params.join() on it and crashes.
+		if t.Params == nil {
+			t.Params = []string{}
+		}
 		sort.Strings(t.Params)
-		key := t.URL + "\x00" + strings.Join(t.Params, ",")
+		key := t.URL + "\x00" + strings.Join(t.Params, ",") + "\x00" + t.Method + "\x00" + t.Data
 		if _, ok := targetSet[key]; !ok {
 			targetSet[key] = t
 		}
@@ -126,7 +168,12 @@ func Crawl(ctx context.Context, seed string, opt Options) (*Result, error) {
 			}
 			for _, link := range pr.links {
 				lu, err := url.Parse(link)
-				if err != nil || !sameHost(base, lu) {
+				if err != nil || !inScope(lu) {
+					continue
+				}
+				// Never follow a logout/sign-out link: it would end an
+				// authenticated crawl's session and send the rest to login.
+				if destroysSession(lu) {
 					continue
 				}
 				clean := canonical(lu)
@@ -204,13 +251,16 @@ func fetchPage(ctx context.Context, pageURL string, base *url.URL, opt Options) 
 	}
 
 	// A directly-fetched script (e.g. the seed is a .js) is analysed as JS.
-	if strings.Contains(ctype, "javascript") {
+	if isScriptContentType(ctype) {
 		return pageResult{targets: extractFromJS(base, body)}
 	}
 
 	links, forms, scripts, inline := parseHTML(pu, body)
 	res := pageResult{links: links, targets: forms}
-	for _, s := range scripts {
+	for i, s := range scripts {
+		if i >= maxScriptsPerPage {
+			break
+		}
 		su, err := url.Parse(s)
 		if err != nil || !sameHost(base, su) {
 			continue
@@ -223,6 +273,13 @@ func fetchPage(ctx context.Context, pageURL string, base *url.URL, opt Options) 
 		res.targets = append(res.targets, extractFromJS(base, []byte(code))...)
 	}
 	return res
+}
+
+// isScriptContentType reports whether a response body should be analysed as
+// JavaScript rather than HTML.
+func isScriptContentType(ct string) bool {
+	ct = strings.ToLower(ct)
+	return strings.Contains(ct, "javascript") || strings.Contains(ct, "ecmascript")
 }
 
 // get fetches a URL and returns its (bounded) body and content-type, or nil on
@@ -327,16 +384,33 @@ func formTarget(pageURL *url.URL, form *html.Node) Target {
 	}
 	walk(form)
 
-	// Encode the discovered parameters into the action URL so the target is
-	// directly scannable: dalfox tests the params present in the URL, so a
-	// GET form must carry "?a=&b=" or a mining-skipped scan finds nothing.
+	// A non-GET form is scanned with its own method and body: putting the
+	// fields in the query string would test an endpoint the application does
+	// not read (and usually miss the injection entirely). The page the form
+	// lives on is kept as the candidate reflection URL for stored XSS.
+	method := strings.ToUpper(strings.TrimSpace(attr(form, "method")))
 	base := stripQuery(actionURL)
-	if len(params) == 0 {
-		return Target{URL: base, Source: "form"}
-	}
 	vals := url.Values{}
 	for _, p := range params {
 		vals.Set(p, "")
+	}
+	if method != "" && method != http.MethodGet {
+		return Target{
+			URL:        base,
+			Params:     params,
+			Source:     "form",
+			Method:     method,
+			Data:       vals.Encode(),
+			ReflectURL: pageURL.String(),
+		}
+	}
+
+	// GET form: encode the discovered parameters into the action URL so the
+	// target is directly scannable. dalfox tests the params present in the
+	// URL, so a GET form must carry "?a=&b=" or a mining-skipped scan finds
+	// nothing.
+	if len(params) == 0 {
+		return Target{URL: base, Source: "form"}
 	}
 	return Target{URL: base + "?" + vals.Encode(), Params: params, Source: "form"}
 }
@@ -426,6 +500,22 @@ func resolve(base *url.URL, href string) string {
 
 func sameHost(base, u *url.URL) bool {
 	return u != nil && strings.EqualFold(u.Host, base.Host)
+}
+
+// scopeDir returns the directory prefix a crawl is confined to: the seed path
+// itself when it ends in "/", otherwise the directory containing the seed file.
+// A root or empty path yields "/", i.e. the whole host.
+func scopeDir(p string) string {
+	if p == "" {
+		return "/"
+	}
+	if strings.HasSuffix(p, "/") {
+		return p
+	}
+	if i := strings.LastIndex(p, "/"); i >= 0 {
+		return p[:i+1]
+	}
+	return "/"
 }
 
 // canonical returns a comparable URL string: fragment stripped, query kept.

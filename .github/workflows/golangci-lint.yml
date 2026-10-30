@@ -30,9 +30,9 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
-          # golangci-lint v2 (required by action v7). `latest` tracks the newest
-          # v2 release, which is built against a current Go toolchain.
-          version: latest
+          # Pinned to the same version as the Makefile so CI and `make lint`
+          # agree. Bump both together.
+          version: v2.15.0
 
           # Optional: working directory, useful for monorepos
           # working-directory: somedir

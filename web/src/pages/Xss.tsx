@@ -8,6 +8,12 @@ import { BugIcon, ShieldIcon, SitemapIcon, SearchIcon } from "../components/icon
 // the scan surface, curate the target list, configure dalfox, then run an
 // automated scan with live progress and streaming findings. Everything here is
 // an ACTIVE check — crawling and scanning send live traffic to the target.
+// targetKey identifies a target in the list. The URL alone is not enough: a GET
+// link and a POST form can share one, and they are separate scans.
+function targetKey(t: CrawlTarget): string {
+  return [t.url, t.params.join(","), t.method ?? "", t.data ?? ""].join("|");
+}
+
 export function Xss() {
   // Shared discovery/auth state.
   const [seed, setSeed] = useState("");
@@ -57,9 +63,9 @@ export function Xss() {
 
   const mergeTargets = (incoming: CrawlTarget[]) => {
     setTargets((prev) => {
-      const byUrl = new Map(prev.map((t) => [t.url + "|" + t.params.join(","), t]));
-      for (const t of incoming) byUrl.set(t.url + "|" + t.params.join(","), t);
-      return [...byUrl.values()];
+      const byKey = new Map(prev.map((t) => [targetKey(t), t]));
+      for (const t of incoming) byKey.set(targetKey(t), t);
+      return [...byKey.values()];
     });
   };
 
@@ -74,7 +80,7 @@ export function Xss() {
       // Pre-select everything that carries parameters (the useful surface).
       setSelected((prev) => {
         const next = new Set(prev);
-        for (const t of res.targets ?? []) if (t.params.length > 0) next.add(t.url);
+        for (const t of res.targets ?? []) if (t.params.length > 0) next.add(targetKey(t));
         return next;
       });
     } catch (e) {
@@ -87,24 +93,23 @@ export function Xss() {
   const addManual = () => {
     const u = manual.trim();
     if (!u) return;
-    mergeTargets([{ url: u, params: [], source: "manual" }]);
-    setSelected((prev) => new Set(prev).add(u));
+    const target: CrawlTarget = { url: u, params: [], source: "manual" };
+    mergeTargets([target]);
+    setSelected((prev) => new Set(prev).add(targetKey(target)));
     setManual("");
   };
 
-  const toggle = (url: string) =>
+  const toggle = (key: string) =>
     setSelected((prev) => {
       const next = new Set(prev);
-      next.has(url) ? next.delete(url) : next.add(url);
+      next.has(key) ? next.delete(key) : next.add(key);
       return next;
     });
 
-  const selectedUrls = [...new Set([...selected])].filter((u) =>
-    targets.some((t) => t.url === u),
-  );
+  const selectedTargets = targets.filter((t) => selected.has(targetKey(t)));
 
   const startScan = async () => {
-    if (selectedUrls.length === 0) return;
+    if (selectedTargets.length === 0) return;
     setScanErr(null);
     setJob(null);
     const headers = headersText
@@ -112,7 +117,13 @@ export function Xss() {
       .map((l) => l.trim())
       .filter(Boolean);
     try {
-      const { job_id } = await api.startScan(selectedUrls, { ...opts, cookie, headers });
+      const scanTargets = selectedTargets.map(({ url, method, data, reflect_url }) => ({
+        url,
+        method,
+        data,
+        reflect_url,
+      }));
+      const { job_id } = await api.startScan(scanTargets, { ...opts, cookie, headers });
       setJobId(job_id);
     } catch (e) {
       setScanErr(e instanceof Error ? e.message : String(e));
@@ -240,21 +251,21 @@ export function Xss() {
         title="Targets"
         right={
           <span className="text-xs text-muted">
-            <span className="font-mono text-slate-200">{selectedUrls.length}</span> /{" "}
+            <span className="font-mono text-slate-200">{selectedTargets.length}</span> /{" "}
             <span className="font-mono text-slate-200">{targets.length}</span> selected
           </span>
         }
       >
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <button
-            onClick={() => setSelected(new Set(targets.map((t) => t.url)))}
+            onClick={() => setSelected(new Set(targets.map(targetKey)))}
             disabled={targets.length === 0}
             className="rounded border border-line px-2 py-1 text-xs text-slate-300 hover:bg-ink-700 disabled:opacity-40"
           >
             select all
           </button>
           <button
-            onClick={() => setSelected(new Set(targets.filter((t) => t.params.length > 0).map((t) => t.url)))}
+            onClick={() => setSelected(new Set(targets.filter((t) => t.params.length > 0).map(targetKey)))}
             disabled={targets.length === 0}
             className="rounded border border-line px-2 py-1 text-xs text-slate-300 hover:bg-ink-700 disabled:opacity-40"
           >
@@ -290,16 +301,17 @@ export function Xss() {
             <table className="w-full border-collapse text-sm">
               <tbody>
                 {targets.map((t) => (
-                  <tr key={t.url + t.params.join(",")} className="border-b border-line/50">
+                  <tr key={targetKey(t)} className="border-b border-line/50">
                     <td className="w-8 py-1.5 pl-3">
                       <input
                         type="checkbox"
-                        checked={selected.has(t.url)}
-                        onChange={() => toggle(t.url)}
+                        checked={selected.has(targetKey(t))}
+                        onChange={() => toggle(targetKey(t))}
                         className="accent-accent"
                       />
                     </td>
                     <td className="py-1.5 pr-3 font-mono text-xs text-slate-200">
+                      {t.method && <span className="mr-1.5 text-warn">{t.method}</span>}
                       <span className="break-all">{t.url}</span>
                     </td>
                     <td className="py-1.5 pr-3">
@@ -369,10 +381,10 @@ export function Xss() {
           ) : (
             <button
               onClick={() => void startScan()}
-              disabled={selectedUrls.length === 0}
+              disabled={selectedTargets.length === 0}
               className="rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              scan {selectedUrls.length} target{selectedUrls.length === 1 ? "" : "s"}
+              scan {selectedTargets.length} target{selectedTargets.length === 1 ? "" : "s"}
             </button>
           )
         }
@@ -395,14 +407,16 @@ export function Xss() {
             Select targets above, then start the scan. Progress and findings stream in live.
           </p>
         ) : (
-          <ScanProgress job={job} pct={pct} />
+          <ScanProgress job={job} pct={pct} cookie={cookie} />
         )}
       </Card>
     </div>
   );
 }
 
-function ScanProgress({ job, pct }: { job: ScanJob; pct: number }) {
+function ScanProgress({ job, pct, cookie }: { job: ScanJob; pct: number; cookie: string }) {
+  const stopped = job.targets.filter((t) => t.state === "stopped").length;
+  const incomplete = job.targets.filter((t) => t.meta?.incomplete).length;
   return (
     <div className="space-y-4">
       <div>
@@ -421,6 +435,22 @@ function ScanProgress({ job, pct }: { job: ScanJob; pct: number }) {
           />
         </div>
       </div>
+
+      {job.truncated && (
+        <p className="text-xs text-warn">
+          Findings capped — more were found than one job can store, so the list below is incomplete.
+        </p>
+      )}
+      {stopped > 0 && (
+        <p className="text-xs text-muted">
+          {stopped} target(s) were not scanned because the job was stopped — not a clean result.
+        </p>
+      )}
+      {incomplete > 0 && (
+        <p className="text-xs text-warn">
+          {incomplete} target(s) reported an incomplete scan; treat their results as partial.
+        </p>
+      )}
 
       {(job.state === "running" || job.state === "queued") && (
         <div className="flex items-center gap-2 text-xs text-muted">
@@ -453,7 +483,7 @@ function ScanProgress({ job, pct }: { job: ScanJob; pct: number }) {
             </thead>
             <tbody>
               {job.findings.map((p, i) => (
-                <XssRow key={`${p.param}-${p.message_id}-${i}`} p={p} />
+                <XssRow key={`${p.param}-${p.message_id}-${i}`} p={p} cookie={cookie} />
               ))}
             </tbody>
           </table>
@@ -470,7 +500,8 @@ function ScanProgress({ job, pct }: { job: ScanJob; pct: number }) {
             {job.targets
               .filter((t) => t.state === "error")
               .map((t) => (
-                <li key={t.url} className="font-mono">
+                <li key={`${t.method ?? ""} ${t.url}`} className="font-mono">
+                  {t.method ? `${t.method} ` : ""}
                   {t.url} — {t.error}
                 </li>
               ))}
@@ -580,8 +611,81 @@ function severityClasses(sev: string): string {
   }
 }
 
-function XssRow({ p }: { p: XssPoc }) {
+// safeHref only allows http(s) values to become a link target. A PoC's data
+// field is derived from the scanned target's responses, so it is untrusted:
+// a javascript: URL must never become clickable in the Bruter UI.
+function safeHref(u: string): string | null {
+  return /^https?:\/\//i.test(u.trim()) ? u : null;
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// shellArg single-quotes a value for a POSIX shell, escaping embedded quotes,
+// so a payload full of <>'"&; characters pastes safely into a terminal.
+function shellArg(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+// payloadInUrl reports whether the payload is carried in the data URL itself,
+// so opening that URL reproduces the finding. Query/path injections are; cookie,
+// header and POST-body injections are NOT — their payload rides in a header or
+// request body a plain link can't set, which is why a bare "open" link for them
+// is misleading (the payload simply isn't there).
+function payloadInUrl(p: XssPoc): boolean {
+  if (!p.data || !p.payload) return false;
+  let decoded = p.data;
+  try {
+    decoded = decodeURIComponent(p.data);
+  } catch {
+    /* keep raw on malformed escapes */
+  }
+  return decoded.includes(p.payload) || p.data.includes(p.payload);
+}
+
+// pocCurl builds a copy-pasteable curl that actually reproduces the finding by
+// placing the payload where it belongs: already in the URL for query
+// injections, in the matching cookie for a cookie injection, in a request
+// header for a header injection, or in the body for a POST form. The shared
+// session cookie is carried through so authenticated findings reproduce.
+function pocCurl(p: XssPoc, cookie: string): string {
+  const method = (p.method || "GET").toUpperCase();
+  const loc = (p.location || "").toLowerCase();
+  const shared = cookie.trim();
+  const param = p.param || "";
+  const inUrl = payloadInUrl(p);
+
+  // dalfox reports cookies and request headers both as location "Header"; tell
+  // them apart by whether the param name is a cookie already in the shared jar.
+  const cookieRe = param ? new RegExp(`(^|;\\s*)${escapeRegExp(param)}=`) : null;
+  const isCookieInjection = !inUrl && loc === "header" && !!cookieRe && cookieRe.test(shared);
+  const isHeaderInjection = !inUrl && loc === "header" && !isCookieInjection && param !== "";
+  const isBodyInjection =
+    !inUrl && !isCookieInjection && !isHeaderInjection && method !== "GET" && param !== "";
+
+  let cookieHeader = shared;
+  if (isCookieInjection && param) {
+    cookieHeader = shared.replace(
+      new RegExp(`((^|;\\s*)${escapeRegExp(param)}=)[^;]*`),
+      `$1${p.payload}`,
+    );
+  }
+
+  const parts = ["curl", "-gik"];
+  if (method !== "GET") parts.push("-X", method);
+  if (isHeaderInjection) parts.push("-H", shellArg(`${param}: ${p.payload}`));
+  if (isBodyInjection) parts.push("--data", shellArg(`${param}=${p.payload}`));
+  if (cookieHeader) parts.push("-b", shellArg(cookieHeader));
+  parts.push(shellArg(p.data));
+  return parts.join(" ");
+}
+
+function XssRow({ p, cookie }: { p: XssPoc; cookie: string }) {
   const verified = p.type.toUpperCase() === "V";
+  const inUrl = payloadInUrl(p);
+  const href = inUrl ? safeHref(p.data) : null;
+  const curl = pocCurl(p, cookie);
   return (
     <tr className="border-b border-line/50 align-top">
       <td className="py-2 pr-3">
@@ -610,20 +714,40 @@ function XssRow({ p }: { p: XssPoc }) {
           {p.payload || "—"}
         </code>
       </td>
-      <td className="py-2 pr-3">
-        {p.data ? (
-          <a
-            href={p.data}
-            target="_blank"
-            rel="noreferrer"
-            className="font-mono text-xs text-accent hover:underline"
-            title={p.data}
+      <td className="max-w-[24rem] py-2 pr-3">
+        <div className="flex flex-col gap-1">
+          {href ? (
+            <a
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              className="font-mono text-xs text-accent hover:underline"
+              title={href}
+            >
+              open ↗
+            </a>
+          ) : (
+            <span
+              className="text-[10px] uppercase tracking-wide text-muted"
+              title="Payload rides in a cookie/header/body, not the URL — a plain link can't set it. Use the curl below."
+            >
+              {p.location || "non-URL"} injection — use curl
+            </span>
+          )}
+          <code
+            className="block overflow-x-auto whitespace-pre rounded bg-ink-700 px-1.5 py-1 text-[11px] text-slate-300"
+            title={curl}
           >
-            open ↗
-          </a>
-        ) : (
-          <span className="text-muted">—</span>
-        )}
+            {curl}
+          </code>
+          <button
+            type="button"
+            onClick={() => void navigator.clipboard?.writeText(curl)}
+            className="self-start text-[10px] text-accent hover:underline"
+          >
+            copy curl
+          </button>
+        </div>
       </td>
     </tr>
   );
