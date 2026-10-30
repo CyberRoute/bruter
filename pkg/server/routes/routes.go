@@ -21,7 +21,12 @@ func Routes(mux *chi.Mux, homeArgs models.HomeArgs) {
 	mux.Get("/api/reverseip", handlers.Repo.ReverseIPAPI)
 	mux.Get("/api/robtex", handlers.Repo.RobtexAPI)
 	mux.Post("/api/probe", handlers.Repo.ProbeAPI)
-	mux.Get("/api/whois", handlers.Repo.WhoisAPI)
+	mux.Post("/api/xss", handlers.Repo.XSSAPI)
+	mux.Get("/api/target", handlers.Repo.TargetAPI)
+	mux.Post("/api/crawl", handlers.Repo.CrawlAPI)
+	mux.Post("/api/scan", handlers.Repo.ScanStartAPI)
+	mux.Get("/api/scan/{id}", handlers.Repo.ScanStatusAPI)
+	mux.Post("/api/scan/{id}/stop", handlers.Repo.ScanStopAPI)
 
 	// Live directory-fuzzing feed (polled by the dashboard).
 	mux.Get("/consumer", handlers.Repo.Consumer)

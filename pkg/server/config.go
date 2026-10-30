@@ -27,7 +27,7 @@ func (sc *ConfigServer) checkError(err error) {
 }
 
 // RunConfiguration runs for NewServer
-func (sc *ConfigServer) RunConfiguration(app *config.AppConfig) (models.HomeArgs, models.TemplateData, models.TemplateData) {
+func (sc *ConfigServer) RunConfiguration(app *config.AppConfig) models.HomeArgs {
 	ipv4, err := network.ResolveByName(app.Domain)
 	sc.checkError(err)
 
@@ -65,7 +65,13 @@ func (sc *ConfigServer) RunConfiguration(app *config.AppConfig) (models.HomeArgs
 		},
 		func() {
 			var herr error
-			headers, herr = sh.Head(app.Scheme + "://" + app.Domain)
+			// Use Target (host[:port]) not Domain, so the header probe hits the
+			// port the user named rather than the default 80/443.
+			authority := app.Target
+			if authority == "" {
+				authority = app.Domain
+			}
+			headers, herr = sh.Head(app.Scheme + "://" + authority)
 			if herr != nil {
 				sc.App.ZeroLog.Warn().Err(herr).Msg("could not grab HTTP headers from target")
 			}
@@ -125,7 +131,7 @@ func (sc *ConfigServer) RunConfiguration(app *config.AppConfig) (models.HomeArgs
 		Irc:     irc,
 	}
 
-	// SSL and WHOIS args are empty here; their handlers populate the data per
-	// request (see handlers.SSLInfo / handlers.WhoisInfo).
-	return homeArgs, models.TemplateData{}, models.TemplateData{}
+	// SSL and WHOIS data are fetched lazily by their API handlers per request,
+	// so they are not gathered here.
+	return homeArgs
 }

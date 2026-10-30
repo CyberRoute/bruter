@@ -11,7 +11,6 @@ What does it do?
 - It grabs HostInfo data from Shodan APIs, so you will need a Token to try this out
 - It collects banners for various services FTP, SSH, MYSQL, IRC, SMTP
 - It collects HTTP headers
-- It collects WHOIS query information
 - It brute force directories on WebServers and reports results (200)
 - It provides info from crt.sh about SSL certificates
 - DNS enumeration — A, AAAA, NS, TXT, CNAME, MX, SOA and reverse-DNS (PTR) records
@@ -22,18 +21,32 @@ What does it do?
 - Comprehensive IP info (Robtex) — owning network (ASN/route/whois) and active/passive DNS history
 - **HTTP probing** — resolves and fetches discovered hosts, capturing status, title, server, technology hints, reflective CORS and missing security headers
 - **Subdomain takeover detection** — flags dangling CNAMEs pointing at unclaimed hosting services (GitHub Pages, S3, Heroku, …) using a fingerprint database
+- **XSS scanning** — runs the [dalfox](https://github.com/hahwul/dalfox) scanner (v3) against a supplied URL and reports reflected/DOM cross-site-scripting PoCs with confidence and scan metadata (requires the `dalfox` v3 binary on the server's `PATH` — `brew install dalfox`)
+- **Crawl-driven automated XSS** — a same-host crawler plus static JavaScript analysis discovers the scan surface (parameterised URLs, form actions and JS endpoints), which feeds a background scan job that runs dalfox across every selected target with live progress and streaming findings
 - It supports custom wordlists
 - It produces a Web UI for presentation
 
-> **Note on active checks.** Zone-transfer attempts, subdomain brute-force and
-> HTTP probing send live queries/requests to the target's infrastructure, and
-> the reverse-IP and Robtex lookups query third-party services. Only run Bruter
-> against systems you are authorised to test.
+> **Note on active checks.** Zone-transfer attempts, subdomain brute-force,
+> HTTP probing and XSS scanning send live queries/requests/payloads to the
+> target's infrastructure, and the reverse-IP and Robtex lookups query
+> third-party services. Only run Bruter against systems you are authorised to
+> test.
+
+> **Network exposure.** The UI has **no authentication**, and the crawl/XSS/scan
+> endpoints make live requests on the caller's behalf. Bruter therefore refuses
+> to bind a non-loopback address unless you pass `-allow-remote`, rejects
+> requests with a non-loopback `Host` header (DNS-rebinding protection), and
+> requires `Content-Type: application/json` for API mutations. Treat
+> `-allow-remote` as "anyone who can reach this port can run scans".
 
 ## Usage
 ```
    -address string
     	IP address to bind the web UI server to. (default "127.0.0.1")
+  -allow-remote
+    	Allow the UI to be reached from non-loopback addresses. The UI has no
+    	authentication and its scan endpoints make live requests, so only use
+    	this on a trusted network.
   -delay duration
     	Delay before each request, per worker (e.g. 100ms). Default 0 (no delay).
   -dictionary string
@@ -52,14 +65,21 @@ What does it do?
     	Default is 0, if workers is less than or equal than zero, it will be auto scaled to the number of logical CPUs usable by the current process.
 ```
 
+`-domain` accepts a bare host, a `host:port` pair or a full URL
+(`https://www.msd.com/path`). It is normalised to the bare hostname in lower
+case, with a leading `www.` stripped: enumeration targets the registrable
+domain, so `-domain https://www.msd.com` scans `msd.com`. Other subdomains are
+left untouched (`https://sub.msd.com` stays `sub.msd.com`).
+
 ## Web UI
 The presentation layer is a React single-page app (Vite + TypeScript + Tailwind)
 that lives in [`web/`](web/) and is **embedded into the Go binary** via `go:embed`.
 It presents the scan as tabs — **Dashboard** (host/network, ports, banners,
 headers), **Subdomains** (passive + active brute-force, plus HTTP probing and
 subdomain-takeover detection), **DNS** (records, zone
-transfer, SPF/DMARC, reverse-IP and Robtex), and **WHOIS** — backed by a small
-JSON API that the SPA consumes:
+transfer, SPF/DMARC, reverse-IP and Robtex) and **XSS** (crawl + JS analysis →
+automated dalfox scanning with live findings) — backed by a
+small JSON API that the SPA consumes:
 
 | Endpoint | Description |
 | --- | --- |
@@ -70,7 +90,11 @@ JSON API that the SPA consumes:
 | `GET /api/reverseip` | Reverse-IP lookup — other host names sharing the domain's IP ("neighbours"), via an external source |
 | `GET /api/robtex` | Robtex comprehensive IP view — owning network (ASN/route/whois) and active/passive DNS history, via an external source |
 | `POST /api/probe` | HTTP probe + subdomain-takeover check for a posted list of hosts (`{"hosts":[...]}`) — status, title, server, tech, CORS, missing security headers, takeover flags |
-| `GET /api/whois` | Raw WHOIS record |
+| `POST /api/xss` | Active XSS scan of a single URL (`{"url":"https://host/path?q=1","cookie":"sid=…","skip_mining":false}`) via the dalfox v3 binary — returns `{target, count, pocs, meta}` where each PoC has param, payload, type, severity and confidence (`503` if dalfox is not installed, error if the target could not be scanned) |
+| `POST /api/crawl` | Same-host crawl + JS analysis of a seed (`{"url":"https://host/","depth":2,"max_pages":100,"cookie":"…"}`) — returns `{seed, pages, targets:[{url, params, source, method, data, reflect_url}]}` (source = link/form/js; `method`/`data`/`reflect_url` are set on non-GET forms) |
+| `POST /api/scan` | Start a background scan job over many targets (`{"targets":[…],"options":{…}}`; each target is a URL string or `{url, method, data, reflect_url}` so a POST form is scanned as a POST; options map to dalfox flags, numeric values clamped) — returns `{job_id}` (`503` if dalfox is not installed, `429` when the job limit is reached, `400` above 500 targets) |
+| `GET /api/scan/{id}` | Poll a scan job — `{state, done, total, findings, targets, truncated, …}` (state = queued/running/done/stopped/error, per-target state also `stopped`; each target carries its dalfox `meta`). Finished jobs are retained for 30 minutes, then evicted |
+| `POST /api/scan/{id}/stop` | Cancel a running scan job |
 | `GET /consumer` | Live directory-fuzzing feed (polled by the dashboard) |
 
 Because the UI is embedded, you must build `web/dist` before building the Go
@@ -102,7 +126,9 @@ The Docker build compiles the UI in a Node stage and embeds it into the binary,
 so no extra steps are needed:
 ```
 docker build -t bruter .
-docker run --rm -it -p 8080:8080 bruter -domain example.com -shodan [shodanapikey] -verbose
+# The container must listen on all interfaces for the published port to work;
+# -allow-remote is required for that (see the network-exposure note above).
+docker run --rm -it -p 8080:8080 bruter -domain example.com -shodan [shodanapikey] -verbose -address 0.0.0.0 -allow-remote
 ```
 
 
@@ -165,7 +191,7 @@ PASS
 	github.com/CyberRoute/bruter/pkg/network	coverage: 26.7% of statements
 ok  	github.com/CyberRoute/bruter/pkg/network	0.165s	coverage: 26.7% of statements
 Running lint...
-go list ./... | golangci-lint run 
+golangci-lint run  # bootstraps the pinned v2.15.0 into ./bin if not on PATH
 Formatting...
 gofmt -s -w .
 Building...

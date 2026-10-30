@@ -3,7 +3,7 @@ import { Layout } from "./components/Layout";
 import { Dashboard } from "./pages/Dashboard";
 import { Subdomains } from "./pages/Subdomains";
 import { Dns } from "./pages/Dns";
-import { Whois } from "./pages/Whois";
+import { Xss } from "./pages/Xss";
 
 export default function App() {
   return (
@@ -13,9 +13,9 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="subdomains" element={<Subdomains />} />
           <Route path="dns" element={<Dns />} />
+          <Route path="xss" element={<Xss />} />
           {/* Keep the old /ssl path working as an alias for existing links. */}
           <Route path="ssl" element={<Subdomains />} />
-          <Route path="whois" element={<Whois />} />
           <Route path="*" element={<Dashboard />} />
         </Route>
       </Routes>

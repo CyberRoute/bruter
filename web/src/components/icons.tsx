@@ -31,6 +31,12 @@ export const NetworkIcon = svg(
     <path d="M12 9v3M6 15v-1a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" />
   </>,
 );
+export const BugIcon = svg(
+  <>
+    <rect x="8" y="6" width="8" height="12" rx="4" />
+    <path d="M12 6V4M9 4h6M3 9h3M3 14h3M18 9h3M18 14h3M5 19l3-2M19 19l-3-2M5 5l3 2M19 5l-3 2" />
+  </>,
+);
 export const SearchIcon = svg(
   <>
     <circle cx="11" cy="11" r="7" />
@@ -62,12 +68,6 @@ export const MapIcon = svg(
   <>
     <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z" />
     <path d="M9 4v14M15 6v14" />
-  </>,
-);
-export const FileIcon = svg(
-  <>
-    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z" />
-    <path d="M14 3v5h5" />
   </>,
 );
 export const DownloadIcon = svg(

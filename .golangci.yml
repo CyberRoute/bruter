@@ -1,0 +1,12 @@
+# golangci-lint v2 configuration. Declaring the version keeps the run
+# deterministic across releases; with no linters block the default set
+# (errcheck, govet, ineffassign, staticcheck, unused) is used.
+version: "2"
+linters:
+  exclusions:
+    # golangci-lint v1 enabled these common exclusions by default
+    # (exclude-use-default); v2 does not. The std-error-handling preset
+    # restores them so unchecked defer Close()/Flush()/os.Remove() — long
+    # accepted in this codebase — are not newly flagged by errcheck.
+    presets:
+      - std-error-handling

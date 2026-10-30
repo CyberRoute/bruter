@@ -131,6 +131,121 @@ export interface ProbeResult {
   error?: string;
 }
 
+export interface XssPoc {
+  type: string;
+  type_description: string;
+  inject_type: string;
+  detection_method: string;
+  confidence: string;
+  confidence_reason: string;
+  location: string;
+  method: string;
+  data: string;
+  param: string;
+  payload: string;
+  evidence: string;
+  cwe: string;
+  severity: string;
+  message_id: number;
+  message_str: string;
+}
+
+export interface XssTargetSummary {
+  target: string;
+  // "clean" | "findings" | "skipped" (skipped carries an error_code)
+  status: string;
+  error_code?: string;
+  findings_count: number;
+}
+
+export interface XssMeta {
+  dalfox_version: string;
+  failed_requests: number;
+  total_requests: number;
+  scan_duration_ms: number;
+  incomplete: boolean;
+  target_summary?: XssTargetSummary[];
+}
+
+export interface XssResult {
+  target: string;
+  count: number;
+  pocs: XssPoc[];
+  meta: XssMeta;
+}
+
+export interface CrawlTarget {
+  url: string;
+  params: string[];
+  source: string; // "link" | "form" | "js"
+  // Set on non-GET forms: how to submit them, and the page they were found on.
+  method?: string;
+  data?: string;
+  reflect_url?: string;
+}
+
+// ScanTarget is what /api/scan accepts per target; method and data are
+// per-target overrides so a POST form is scanned as a POST.
+export type ScanTarget = Pick<CrawlTarget, "url" | "method" | "data" | "reflect_url">;
+
+export interface CrawlResult {
+  seed: string;
+  pages: number;
+  targets: CrawlTarget[];
+}
+
+// ScanOptions mirrors the backend scanOptionsReq (pkg/handlers) which maps to
+// xss.Options. All fields are optional; omitted ones take dalfox defaults.
+export interface ScanOptions {
+  cookie?: string;
+  headers?: string[];
+  user_agent?: string;
+  method?: string;
+  skip_mining?: boolean;
+  skip_mining_dict?: boolean;
+  skip_mining_dom?: boolean;
+  // skip_ast silences dalfox's unverified "[A]" DOM-XSS static findings.
+  skip_ast?: boolean;
+  // only_poc filters reported finding types: comma-separated v,r,a,i (e.g. "v").
+  only_poc?: string;
+  blind_url?: string;
+  rate_limit?: number;
+  follow_redirects?: boolean;
+  deep_scan?: boolean;
+  waf_evasion?: boolean;
+  stored_xss?: boolean;
+  sxss_url?: string;
+  workers?: number;
+  timeout?: number;
+  delay?: number;
+  scan_timeout?: number;
+}
+
+export interface ScanTargetStatus {
+  url: string;
+  method?: string;
+  state: string; // pending | running | done | error | stopped
+  findings: number;
+  error?: string;
+  // Per-target dalfox report metadata: lets the UI tell a clean scan apart from
+  // one that was incomplete.
+  meta?: XssMeta;
+}
+
+export interface ScanJob {
+  id: string;
+  state: string; // queued | running | done | stopped | error
+  total: number;
+  done: number;
+  findings: XssPoc[];
+  targets: ScanTargetStatus[];
+  // True when the findings cap was hit, i.e. not everything was stored.
+  truncated?: boolean;
+  started_at: string;
+  finished_at?: string;
+  error?: string;
+}
+
 export interface DnsRecords {
   a: string[] | null;
   aaaa: string[] | null;
@@ -192,7 +307,22 @@ export const api = {
   robtex: () => getJSON<RobtexIpInfo>("/api/robtex"),
   // Active HTTP probe + takeover check of a caller-supplied host list.
   probe: (hosts: string[]) => postJSON<ProbeResult[]>("/api/probe", { hosts }),
-  whois: () => getJSON<{ whois: string }>("/api/whois"),
+  // Active XSS scan of a single caller-supplied URL via the dalfox binary.
+  xss: (url: string, skipMining = false, cookie = "") =>
+    postJSON<XssResult>("/api/xss", { url, skip_mining: skipMining, cookie }),
+  // Seed URL for the crawler, derived from the -domain the server started with.
+  target: () => getJSON<{ domain: string; scheme: string; url: string }>("/api/target"),
+  // Crawl a seed URL (same host) + JS analysis to discover the scan surface.
+  crawl: (body: { url: string; depth?: number; max_pages?: number; cookie?: string }) =>
+    postJSON<CrawlResult>("/api/crawl", body),
+  // Start a background scan job over many targets; returns the job id.
+  startScan: (targets: ScanTarget[], options: ScanOptions) =>
+    postJSON<{ job_id: string }>("/api/scan", { targets, options }),
+  // Poll a scan job's live state, progress and findings.
+  scanStatus: (id: string) => getJSON<ScanJob>(`/api/scan/${encodeURIComponent(id)}`),
+  // Cancel a running scan job.
+  stopScan: (id: string) =>
+    postJSON<{ stopped: boolean }>(`/api/scan/${encodeURIComponent(id)}/stop`, {}),
   // The fuzzing feed is a flat array wrapped in { Urls: [...] } by the backend.
   consumer: () => getJSON<{ Urls: FuzzUrl[] | null }>("/consumer"),
 };
