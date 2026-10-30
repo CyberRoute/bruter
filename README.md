@@ -41,7 +41,7 @@ What does it do?
 
 ## Usage
 ```
-   -address string
+  -address string
     	IP address to bind the web UI server to. (default "127.0.0.1")
   -allow-remote
     	Allow the UI to be reached from non-loopback addresses. The UI has no
