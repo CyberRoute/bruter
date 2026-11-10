@@ -51,6 +51,9 @@ var overallTimeout = 45 * time.Second
 // Variable for tests.
 var perSourceTimeout = 15 * time.Second
 
+// paginatedSourceTimeout is the budget for sources that walk several pages.
+var paginatedSourceTimeout = 35 * time.Second
+
 // OTXBaseURL is AlienVault OTX's passive-DNS endpoint, a free no-auth source.
 // Variable so tests can point it at a mock server.
 var OTXBaseURL = "https://otx.alienvault.com"
@@ -125,8 +128,12 @@ func FetchCrtData(domain string) ([]map[string]interface{}, error) {
 		go func() {
 			// Bound each source by its own cap and the overall deadline.
 			budget := time.Until(overallDeadline)
-			if budget > perSourceTimeout {
-				budget = perSourceTimeout
+			limit := perSourceTimeout
+			if s.name == "certspotter" {
+				limit = paginatedSourceTimeout // walks several pages
+			}
+			if budget > limit {
+				budget = limit
 			}
 			if budget <= 0 {
 				ch <- result{s.name, nil, fmt.Errorf("skipped (deadline reached)")}
@@ -375,10 +382,71 @@ type certSpotterIssuance struct {
 // fetchCertSpotter queries certspotter and maps its response into the same
 // shape the SSL template expects (id, common_name, name_value, issuer_name).
 func fetchCertSpotter(ctx context.Context, domain string) ([]map[string]interface{}, error) {
-	url := fmt.Sprintf("%s/v1/issuances?domain=%s&include_subdomains=true&expand=dns_names&expand=issuer",
-		CertSpotterBaseURL, domain)
+	// certspotter returns 100 issuances per page and paginates with
+	// after=<last id>. A large domain has thousands, so reading only the first
+	// page silently drops most subdomains. Walk pages until the result set is
+	// exhausted, the page cap is reached, or the (unauthenticated) rate limit
+	// or deadline stops us — then keep whatever was collected.
+	var data []map[string]interface{}
+	after := ""
+	for page := 0; page < certSpotterMaxPages; page++ {
+		url := fmt.Sprintf("%s/v1/issuances?domain=%s&include_subdomains=true&expand=dns_names&expand=issuer",
+			CertSpotterBaseURL, domain)
+		if after != "" {
+			url += "&after=" + after
+		}
+		issuances, err := fetchCertSpotterPage(ctx, url, page == 0)
+		if err != nil {
+			if len(data) > 0 {
+				break // partial results beat none (rate limit / deadline mid-walk)
+			}
+			return nil, err
+		}
+		for _, iss := range issuances {
+			var commonName string
+			if len(iss.DNSNames) > 0 {
+				commonName = iss.DNSNames[0]
+			}
+			// The template renders id with %0.0f, so coerce the string id to a number.
+			var id float64
+			if n, convErr := strconv.ParseFloat(iss.ID, 64); convErr == nil {
+				id = n
+			}
+			data = append(data, map[string]interface{}{
+				"id":          id,
+				"common_name": commonName,
+				"name_value":  strings.Join(iss.DNSNames, "\n"),
+				"issuer_name": iss.Issuer.Name,
+			})
+		}
+		if len(issuances) < certSpotterPageSize || issuances[len(issuances)-1].ID == "" {
+			break
+		}
+		after = issuances[len(issuances)-1].ID
+	}
+	return data, nil
+}
 
-	response, err := getWithRetry(ctx, "certspotter", url, true)
+// certspotter pagination bounds: page size is fixed by the API; the cap keeps
+// the walk inside the anonymous rate limit and the per-source time budget.
+const (
+	certSpotterPageSize = 100
+	certSpotterMaxPages = 10
+)
+
+// fetchCertSpotterPage fetches and decodes one page. Only the first page is
+// retried on transient errors; later pages fail fast so a rate limit ends the
+// walk instead of burning the time budget on backoff.
+func fetchCertSpotterPage(ctx context.Context, url string, retry bool) ([]certSpotterIssuance, error) {
+	var (
+		response *http.Response
+		err      error
+	)
+	if retry {
+		response, err = getWithRetry(ctx, "certspotter", url, true)
+	} else {
+		response, err = getOnce(ctx, "certspotter", url)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -388,26 +456,26 @@ func fetchCertSpotter(ctx context.Context, domain string) ([]map[string]interfac
 	if err := json.NewDecoder(response.Body).Decode(&issuances); err != nil {
 		return nil, fmt.Errorf("certspotter response decode failed: %w", err)
 	}
+	return issuances, nil
+}
 
-	data := make([]map[string]interface{}, 0, len(issuances))
-	for _, iss := range issuances {
-		var commonName string
-		if len(iss.DNSNames) > 0 {
-			commonName = iss.DNSNames[0]
-		}
-		// The template renders id with %0.0f, so coerce the string id to a number.
-		var id float64
-		if n, convErr := strconv.ParseFloat(iss.ID, 64); convErr == nil {
-			id = n
-		}
-		data = append(data, map[string]interface{}{
-			"id":          id,
-			"common_name": commonName,
-			"name_value":  strings.Join(iss.DNSNames, "\n"),
-			"issuer_name": iss.Issuer.Name,
-		})
+// getOnce performs a single GET with the source headers and no retries.
+func getOnce(ctx context.Context, service, url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("%s request build failed: %w", service, err)
 	}
-	return data, nil
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Accept", "application/json")
+	response, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%s request failed: %w", service, err)
+	}
+	if response.StatusCode != http.StatusOK {
+		_ = response.Body.Close()
+		return nil, fmt.Errorf("%s unavailable: HTTP %d", service, response.StatusCode)
+	}
+	return response, nil
 }
 
 // otxPassiveDNS is the subset of the AlienVault OTX passive-DNS response we use.

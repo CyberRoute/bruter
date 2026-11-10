@@ -53,7 +53,12 @@ var client = &http.Client{
 type Target struct {
 	URL    string   `json:"url"`
 	Params []string `json:"params"`
-	Source string   `json:"source"` // "link" | "form" | "js"
+	Source string   `json:"source"` // "link" | "form" | "js" | "js-param"
+
+	// Sinks lists dangerous client-side sinks (eval, innerHTML, ...) seen in a
+	// script that also reads the page URL. Set only on "js-param" targets; it
+	// is a hint for manual DOM-XSS review, not a confirmed finding.
+	Sinks []string `json:"sinks,omitempty"`
 
 	// Method and Data describe how to scan a non-GET form. A POST form cannot
 	// be scanned by putting its fields in the query string, so its action URL
@@ -147,8 +152,11 @@ func Crawl(ctx context.Context, seed string, opt Options) (*Result, error) {
 		}
 		sort.Strings(t.Params)
 		key := t.URL + "\x00" + strings.Join(t.Params, ",") + "\x00" + t.Method + "\x00" + t.Data
-		if _, ok := targetSet[key]; !ok {
+		if prev, ok := targetSet[key]; !ok {
 			targetSet[key] = t
+		} else if len(t.Sinks) > 0 {
+			prev.Sinks = mergeSorted(prev.Sinks, t.Sinks)
+			targetSet[key] = prev
 		}
 	}
 
@@ -267,10 +275,12 @@ func fetchPage(ctx context.Context, pageURL string, base *url.URL, opt Options) 
 		}
 		if js, _ := get(ctx, su.String(), opt); js != nil {
 			res.targets = append(res.targets, extractFromJS(base, js)...)
+			res.targets = append(res.targets, extractLocationParams(pu, js)...)
 		}
 	}
 	for _, code := range inline {
 		res.targets = append(res.targets, extractFromJS(base, []byte(code))...)
+		res.targets = append(res.targets, extractLocationParams(pu, []byte(code))...)
 	}
 	return res
 }
@@ -440,6 +450,86 @@ func extractFromJS(base *url.URL, js []byte) []Target {
 		seen[clean] = true
 		out = append(out, Target{URL: clean, Params: paramKeys(abs), Source: "js"})
 	}
+	return out
+}
+
+// locationReadRe detects a script that reads the current page URL. Parameter
+// names are only mined from such scripts, so a generic Map#get("x") in an
+// unrelated bundle does not invent query parameters.
+var locationReadRe = regexp.MustCompile(`URLSearchParams|location\.(?:search|href|hash)|searchParams|document\.(?:URL|documentURI)`)
+
+// jsParamGetRe matches parameter reads such as params.get("q"),
+// searchParams.has('lang') or url.searchParams.getAll("tag").
+var jsParamGetRe = regexp.MustCompile(`\.(?:get|getAll|has)\(\s*["'` + "`" + `]([A-Za-z0-9_\-.\[\]]{1,64})["'` + "`" + `]\s*\)`)
+
+// jsSinkRes are client-side sinks worth a manual look when the same script
+// reads URL-controlled input. Matching is coarse by design: it is a review
+// hint, not taint tracking.
+var jsSinkRes = []struct {
+	name string
+	re   *regexp.Regexp
+}{
+	{"eval", regexp.MustCompile(`\beval\s*\(`)},
+	{"Function", regexp.MustCompile(`\bnew\s+Function\s*\(|\bFunction\s*\(\s*[^)]`)},
+	{"setTimeout-string", regexp.MustCompile(`\bset(?:Timeout|Interval)\s*\(\s*["'` + "`" + `]`)},
+	{"document.write", regexp.MustCompile(`document\.write(?:ln)?\s*\(`)},
+	{"innerHTML", regexp.MustCompile(`\.(?:inner|outer)HTML\s*=[^=]`)},
+	{"insertAdjacentHTML", regexp.MustCompile(`\.insertAdjacentHTML\s*\(`)},
+	{"location-assign", regexp.MustCompile(`location(?:\.href)?\s*=[^=]|location\.(?:assign|replace)\s*\(`)},
+}
+
+// extractLocationParams mines query-parameter names that a script reads from
+// the URL of the page it runs on (pageURL) and returns a target for that page
+// carrying those parameters. Such parameters are never linked anywhere, so a
+// crawl alone cannot discover them. Sinks present in the same script are
+// attached as a DOM-XSS review hint.
+func extractLocationParams(pageURL *url.URL, js []byte) []Target {
+	src := string(js)
+	if !locationReadRe.MatchString(src) {
+		return nil
+	}
+	seen := map[string]bool{}
+	var params []string
+	for _, m := range jsParamGetRe.FindAllStringSubmatch(src, -1) {
+		if !seen[m[1]] {
+			seen[m[1]] = true
+			params = append(params, m[1])
+		}
+	}
+	if len(params) == 0 {
+		return nil
+	}
+	sort.Strings(params)
+	vals := url.Values{}
+	for _, p := range params {
+		vals.Set(p, "")
+	}
+	var sinks []string
+	for _, s := range jsSinkRes {
+		if s.re.MatchString(src) {
+			sinks = append(sinks, s.name)
+		}
+	}
+	sort.Strings(sinks)
+	return []Target{{
+		URL:    stripQuery(canonical(pageURL)) + "?" + vals.Encode(),
+		Params: params,
+		Source: "js-param",
+		Sinks:  sinks,
+	}}
+}
+
+// mergeSorted returns the sorted union of two string slices.
+func mergeSorted(a, b []string) []string {
+	set := map[string]bool{}
+	for _, x := range append(append([]string{}, a...), b...) {
+		set[x] = true
+	}
+	out := make([]string, 0, len(set))
+	for x := range set {
+		out = append(out, x)
+	}
+	sort.Strings(out)
 	return out
 }
 

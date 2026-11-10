@@ -323,6 +323,14 @@ export function Xss() {
                       <span className="rounded border border-line bg-ink-700 px-1 py-0.5 text-[10px] text-muted">
                         {t.source}
                       </span>
+                      {t.sinks && t.sinks.length > 0 && (
+                        <span
+                          title="Dangerous sinks in a script that reads the URL — review manually for DOM XSS"
+                          className="ml-1 rounded border border-warn/50 px-1 py-0.5 text-[10px] text-warn"
+                        >
+                          sink: {t.sinks.join(", ")}
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}
