@@ -22,6 +22,7 @@ func allSourcesTo(url string) func() {
 	origCrt, origCS, origShodan, origCrtName := CrtBaseURL, CertSpotterBaseURL, ShodanCTLBaseURL, CrtNameBaseURL
 	origOTX, origHT, origURLScan := OTXBaseURL, HackerTargetBaseURL, URLScanBaseURL
 	origBackoff := initialBackoff
+	sourceCache.reset() // a previous test's answers must not mask failures
 	CrtBaseURL, CertSpotterBaseURL, ShodanCTLBaseURL, CrtNameBaseURL = url, url, url, url
 	OTXBaseURL, HackerTargetBaseURL, URLScanBaseURL = url, url, url
 	return func() {

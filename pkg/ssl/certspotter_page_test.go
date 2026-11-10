@@ -46,3 +46,17 @@ func TestFetchCertSpotterPaginates(t *testing.T) {
 		t.Fatalf("want %d records from 2 pages, got %d", 2*certSpotterPageSize, len(data))
 	}
 }
+
+// TestSourceCacheFallback verifies a failed source reuses its last good answer.
+func TestSourceCacheFallback(t *testing.T) {
+	sourceCache.put("cache.example", "x", []map[string]interface{}{{"name_value": "a.cache.example"}})
+	if recs, ok := sourceCache.get("CACHE.example", "x"); !ok || len(recs) != 1 {
+		t.Fatalf("expected cached records, got %v %v", recs, ok)
+	}
+	orig := sourceCacheTTL
+	sourceCacheTTL = 0
+	defer func() { sourceCacheTTL = orig }()
+	if _, ok := sourceCache.get("cache.example", "x"); ok {
+		t.Fatal("expired entry should not be returned")
+	}
+}

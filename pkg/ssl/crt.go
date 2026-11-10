@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -150,10 +151,20 @@ func FetchCrtData(domain string) ([]map[string]interface{}, error) {
 	var errs []string
 	for i := 0; i < len(sources); i++ {
 		r := <-ch
-		if r.err != nil {
-			errs = append(errs, fmt.Sprintf("%s: %v", r.name, r.err))
+		if r.err != nil || len(r.recs) == 0 {
+			// A flaky source (502, rate limit, timeout) would otherwise make
+			// the subdomain count jump between refreshes. Fall back to its
+			// last good answer for this domain, if still fresh.
+			if cached, ok := sourceCache.get(domain, r.name); ok {
+				all = append(all, cached...)
+				continue
+			}
+			if r.err != nil {
+				errs = append(errs, fmt.Sprintf("%s: %v", r.name, r.err))
+			}
 			continue
 		}
+		sourceCache.put(domain, r.name, r.recs)
 		all = append(all, r.recs...)
 	}
 
@@ -163,6 +174,45 @@ func FetchCrtData(domain string) ([]map[string]interface{}, error) {
 		return nil, fmt.Errorf("certificate lookup failed (%s)", strings.Join(errs, "; "))
 	}
 	return all, nil
+}
+
+// sourceCacheTTL bounds how long a source's last good answer may stand in for
+// a failed live query. Variable for tests.
+var sourceCacheTTL = 6 * time.Hour
+
+type cachedRecs struct {
+	recs []map[string]interface{}
+	at   time.Time
+}
+
+// perSourceCache remembers each source's last successful result per domain.
+type perSourceCache struct {
+	mu sync.Mutex
+	m  map[string]cachedRecs // key: domain + "\x00" + source
+}
+
+var sourceCache = &perSourceCache{m: map[string]cachedRecs{}}
+
+func (c *perSourceCache) put(domain, source string, recs []map[string]interface{}) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.m[strings.ToLower(domain)+"\x00"+source] = cachedRecs{recs: recs, at: time.Now()}
+}
+
+func (c *perSourceCache) reset() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.m = map[string]cachedRecs{}
+}
+
+func (c *perSourceCache) get(domain, source string) ([]map[string]interface{}, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.m[strings.ToLower(domain)+"\x00"+source]
+	if !ok || time.Since(e.at) > sourceCacheTTL {
+		return nil, false
+	}
+	return e.recs, true
 }
 
 // namesToRecords maps a bare list of hostnames (from sources that return names
