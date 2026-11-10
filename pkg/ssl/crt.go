@@ -278,6 +278,7 @@ func fetchCrtName(ctx context.Context, domain string) ([]map[string]interface{},
 
 	var names []string
 	scanner := bufio.NewScanner(response.Body)
+	scanner.Buffer(make([]byte, 64*1024), 16<<20) // large domains exceed the 64 KiB default line
 	for scanner.Scan() {
 		names = append(names, scanner.Text())
 	}
