@@ -16,7 +16,10 @@ func TestFetchCertSpotterPaginates(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		page := 0
 		if a := r.URL.Query().Get("after"); a != "" {
-			fmt.Sscanf(a, "%d", &page)
+			if _, err := fmt.Sscanf(a, "%d", &page); err != nil {
+				http.Error(w, "bad after", http.StatusBadRequest)
+				return
+			}
 			page = page/certSpotterPageSize + 1
 		}
 		if page == 2 {
