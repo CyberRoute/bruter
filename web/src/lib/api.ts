@@ -177,7 +177,8 @@ export interface XssResult {
 export interface CrawlTarget {
   url: string;
   params: string[];
-  source: string; // "link" | "form" | "js"
+  source: string; // "link" | "form" | "js" | "js-param"
+  sinks?: string[]; // DOM sinks in a script that reads the page URL (review hint)
   // Set on non-GET forms: how to submit them, and the page they were found on.
   method?: string;
   data?: string;

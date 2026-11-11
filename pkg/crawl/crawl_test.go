@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -165,5 +166,68 @@ func TestCrawlPostFormKeepsMethodAndBody(t *testing.T) {
 	}
 	if get.Method != "" || get.Data != "" || !strings.Contains(get.URL, "?q=") {
 		t.Fatalf("GET form should carry its params in the URL: %+v", get)
+	}
+}
+
+func TestExtractLocationParams(t *testing.T) {
+	page, _ := url.Parse("https://app.example/dash/?x=1#frag")
+	js := []byte(`var p=new URLSearchParams(location.search);
+		var q=p.get("q"), mode=p.get('mode');
+		if(p.has("debug")){ document.getElementById("o").innerHTML=q; }
+		var m=new Map(); m.get("q");`)
+	got := extractLocationParams(page, js)
+	if len(got) != 1 {
+		t.Fatalf("want 1 target, got %d", len(got))
+	}
+	tg := got[0]
+	if tg.Source != "js-param" || strings.Join(tg.Params, ",") != "debug,mode,q" {
+		t.Fatalf("unexpected target: %+v", tg)
+	}
+	if tg.URL != "https://app.example/dash/?debug=&mode=&q=" {
+		t.Fatalf("unexpected url: %s", tg.URL)
+	}
+	if strings.Join(tg.Sinks, ",") != "innerHTML" {
+		t.Fatalf("unexpected sinks: %v", tg.Sinks)
+	}
+
+	// A script that never reads the URL yields no params, even with .get("...").
+	if out := extractLocationParams(page, []byte(`cache.get("key"); eval(x)`)); out != nil {
+		t.Fatalf("expected nothing, got %+v", out)
+	}
+}
+
+func TestCrawlMinesLocationParams(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<html><head><script>
+			var s=new URL(window.location.href).searchParams;
+			var v=s.get("payload"); if(v){ eval(atob(v)); }
+		</script><script src="/app.js"></script></head><body></body></html>`))
+	})
+	mux.HandleFunc("/app.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript")
+		_, _ = w.Write([]byte(`const u=new URLSearchParams(location.search); render(u.get("theme"));`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	res, err := Crawl(context.Background(), srv.URL, Options{MaxDepth: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var params, sinks []string
+	for _, tg := range res.Targets {
+		if tg.Source == "js-param" {
+			params = append(params, tg.Params...)
+			sinks = append(sinks, tg.Sinks...)
+		}
+	}
+	p := strings.Join(params, ",")
+	if !strings.Contains(p, "payload") || !strings.Contains(p, "theme") {
+		t.Fatalf("missing mined params: %v", params)
+	}
+	if !strings.Contains(strings.Join(sinks, ","), "eval") {
+		t.Fatalf("eval sink not flagged: %v", sinks)
 	}
 }

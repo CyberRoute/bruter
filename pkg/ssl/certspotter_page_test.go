@@ -1,0 +1,62 @@
+package ssl
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+// TestFetchCertSpotterPaginates verifies that every page is walked via
+// after=<last id>, and that a rate limit mid-walk keeps the partial results.
+func TestFetchCertSpotterPaginates(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		page := 0
+		if a := r.URL.Query().Get("after"); a != "" {
+			if _, err := fmt.Sscanf(a, "%d", &page); err != nil {
+				http.Error(w, "bad after", http.StatusBadRequest)
+				return
+			}
+			page = page/certSpotterPageSize + 1
+		}
+		if page == 2 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		var items []string
+		for i := 0; i < certSpotterPageSize; i++ {
+			id := page*certSpotterPageSize + i
+			items = append(items, fmt.Sprintf(`{"id":"%d","dns_names":["h%d.example.com"]}`, id, id))
+		}
+		_, _ = w.Write([]byte("[" + strings.Join(items, ",") + "]"))
+	}))
+	defer srv.Close()
+	orig := CertSpotterBaseURL
+	CertSpotterBaseURL = srv.URL
+	defer func() { CertSpotterBaseURL = orig }()
+
+	data, err := fetchCertSpotter(context.Background(), "example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) != 2*certSpotterPageSize {
+		t.Fatalf("want %d records from 2 pages, got %d", 2*certSpotterPageSize, len(data))
+	}
+}
+
+// TestSourceCacheFallback verifies a failed source reuses its last good answer.
+func TestSourceCacheFallback(t *testing.T) {
+	sourceCache.put("cache.example", "x", []map[string]interface{}{{"name_value": "a.cache.example"}})
+	if recs, ok := sourceCache.get("CACHE.example", "x"); !ok || len(recs) != 1 {
+		t.Fatalf("expected cached records, got %v %v", recs, ok)
+	}
+	orig := sourceCacheTTL
+	sourceCacheTTL = 0
+	defer func() { sourceCacheTTL = orig }()
+	if _, ok := sourceCache.get("cache.example", "x"); ok {
+		t.Fatal("expired entry should not be returned")
+	}
+}

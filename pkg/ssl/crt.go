@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -50,6 +51,9 @@ var overallTimeout = 45 * time.Second
 // rate-limited source cannot delay the others — this just bounds the straggler.
 // Variable for tests.
 var perSourceTimeout = 15 * time.Second
+
+// paginatedSourceTimeout is the budget for sources that walk several pages.
+var paginatedSourceTimeout = 35 * time.Second
 
 // OTXBaseURL is AlienVault OTX's passive-DNS endpoint, a free no-auth source.
 // Variable so tests can point it at a mock server.
@@ -125,8 +129,12 @@ func FetchCrtData(domain string) ([]map[string]interface{}, error) {
 		go func() {
 			// Bound each source by its own cap and the overall deadline.
 			budget := time.Until(overallDeadline)
-			if budget > perSourceTimeout {
-				budget = perSourceTimeout
+			limit := perSourceTimeout
+			if s.name == "certspotter" {
+				limit = paginatedSourceTimeout // walks several pages
+			}
+			if budget > limit {
+				budget = limit
 			}
 			if budget <= 0 {
 				ch <- result{s.name, nil, fmt.Errorf("skipped (deadline reached)")}
@@ -143,10 +151,20 @@ func FetchCrtData(domain string) ([]map[string]interface{}, error) {
 	var errs []string
 	for i := 0; i < len(sources); i++ {
 		r := <-ch
-		if r.err != nil {
-			errs = append(errs, fmt.Sprintf("%s: %v", r.name, r.err))
+		if r.err != nil || len(r.recs) == 0 {
+			// A flaky source (502, rate limit, timeout) would otherwise make
+			// the subdomain count jump between refreshes. Fall back to its
+			// last good answer for this domain, if still fresh.
+			if cached, ok := sourceCache.get(domain, r.name); ok {
+				all = append(all, cached...)
+				continue
+			}
+			if r.err != nil {
+				errs = append(errs, fmt.Sprintf("%s: %v", r.name, r.err))
+			}
 			continue
 		}
+		sourceCache.put(domain, r.name, r.recs)
 		all = append(all, r.recs...)
 	}
 
@@ -156,6 +174,45 @@ func FetchCrtData(domain string) ([]map[string]interface{}, error) {
 		return nil, fmt.Errorf("certificate lookup failed (%s)", strings.Join(errs, "; "))
 	}
 	return all, nil
+}
+
+// sourceCacheTTL bounds how long a source's last good answer may stand in for
+// a failed live query. Variable for tests.
+var sourceCacheTTL = 6 * time.Hour
+
+type cachedRecs struct {
+	recs []map[string]interface{}
+	at   time.Time
+}
+
+// perSourceCache remembers each source's last successful result per domain.
+type perSourceCache struct {
+	mu sync.Mutex
+	m  map[string]cachedRecs // key: domain + "\x00" + source
+}
+
+var sourceCache = &perSourceCache{m: map[string]cachedRecs{}}
+
+func (c *perSourceCache) put(domain, source string, recs []map[string]interface{}) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.m[strings.ToLower(domain)+"\x00"+source] = cachedRecs{recs: recs, at: time.Now()}
+}
+
+func (c *perSourceCache) reset() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.m = map[string]cachedRecs{}
+}
+
+func (c *perSourceCache) get(domain, source string) ([]map[string]interface{}, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.m[strings.ToLower(domain)+"\x00"+source]
+	if !ok || time.Since(e.at) > sourceCacheTTL {
+		return nil, false
+	}
+	return e.recs, true
 }
 
 // namesToRecords maps a bare list of hostnames (from sources that return names
@@ -221,6 +278,7 @@ func fetchCrtName(ctx context.Context, domain string) ([]map[string]interface{},
 
 	var names []string
 	scanner := bufio.NewScanner(response.Body)
+	scanner.Buffer(make([]byte, 64*1024), 16<<20) // large domains exceed the 64 KiB default line
 	for scanner.Scan() {
 		names = append(names, scanner.Text())
 	}
@@ -375,10 +433,71 @@ type certSpotterIssuance struct {
 // fetchCertSpotter queries certspotter and maps its response into the same
 // shape the SSL template expects (id, common_name, name_value, issuer_name).
 func fetchCertSpotter(ctx context.Context, domain string) ([]map[string]interface{}, error) {
-	url := fmt.Sprintf("%s/v1/issuances?domain=%s&include_subdomains=true&expand=dns_names&expand=issuer",
-		CertSpotterBaseURL, domain)
+	// certspotter returns 100 issuances per page and paginates with
+	// after=<last id>. A large domain has thousands, so reading only the first
+	// page silently drops most subdomains. Walk pages until the result set is
+	// exhausted, the page cap is reached, or the (unauthenticated) rate limit
+	// or deadline stops us — then keep whatever was collected.
+	var data []map[string]interface{}
+	after := ""
+	for page := 0; page < certSpotterMaxPages; page++ {
+		url := fmt.Sprintf("%s/v1/issuances?domain=%s&include_subdomains=true&expand=dns_names&expand=issuer",
+			CertSpotterBaseURL, domain)
+		if after != "" {
+			url += "&after=" + after
+		}
+		issuances, err := fetchCertSpotterPage(ctx, url, page == 0)
+		if err != nil {
+			if len(data) > 0 {
+				break // partial results beat none (rate limit / deadline mid-walk)
+			}
+			return nil, err
+		}
+		for _, iss := range issuances {
+			var commonName string
+			if len(iss.DNSNames) > 0 {
+				commonName = iss.DNSNames[0]
+			}
+			// The template renders id with %0.0f, so coerce the string id to a number.
+			var id float64
+			if n, convErr := strconv.ParseFloat(iss.ID, 64); convErr == nil {
+				id = n
+			}
+			data = append(data, map[string]interface{}{
+				"id":          id,
+				"common_name": commonName,
+				"name_value":  strings.Join(iss.DNSNames, "\n"),
+				"issuer_name": iss.Issuer.Name,
+			})
+		}
+		if len(issuances) < certSpotterPageSize || issuances[len(issuances)-1].ID == "" {
+			break
+		}
+		after = issuances[len(issuances)-1].ID
+	}
+	return data, nil
+}
 
-	response, err := getWithRetry(ctx, "certspotter", url, true)
+// certspotter pagination bounds: page size is fixed by the API; the cap keeps
+// the walk inside the anonymous rate limit and the per-source time budget.
+const (
+	certSpotterPageSize = 100
+	certSpotterMaxPages = 10
+)
+
+// fetchCertSpotterPage fetches and decodes one page. Only the first page is
+// retried on transient errors; later pages fail fast so a rate limit ends the
+// walk instead of burning the time budget on backoff.
+func fetchCertSpotterPage(ctx context.Context, url string, retry bool) ([]certSpotterIssuance, error) {
+	var (
+		response *http.Response
+		err      error
+	)
+	if retry {
+		response, err = getWithRetry(ctx, "certspotter", url, true)
+	} else {
+		response, err = getOnce(ctx, "certspotter", url)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -388,26 +507,26 @@ func fetchCertSpotter(ctx context.Context, domain string) ([]map[string]interfac
 	if err := json.NewDecoder(response.Body).Decode(&issuances); err != nil {
 		return nil, fmt.Errorf("certspotter response decode failed: %w", err)
 	}
+	return issuances, nil
+}
 
-	data := make([]map[string]interface{}, 0, len(issuances))
-	for _, iss := range issuances {
-		var commonName string
-		if len(iss.DNSNames) > 0 {
-			commonName = iss.DNSNames[0]
-		}
-		// The template renders id with %0.0f, so coerce the string id to a number.
-		var id float64
-		if n, convErr := strconv.ParseFloat(iss.ID, 64); convErr == nil {
-			id = n
-		}
-		data = append(data, map[string]interface{}{
-			"id":          id,
-			"common_name": commonName,
-			"name_value":  strings.Join(iss.DNSNames, "\n"),
-			"issuer_name": iss.Issuer.Name,
-		})
+// getOnce performs a single GET with the source headers and no retries.
+func getOnce(ctx context.Context, service, url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("%s request build failed: %w", service, err)
 	}
-	return data, nil
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Accept", "application/json")
+	response, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%s request failed: %w", service, err)
+	}
+	if response.StatusCode != http.StatusOK {
+		_ = response.Body.Close()
+		return nil, fmt.Errorf("%s unavailable: HTTP %d", service, response.StatusCode)
+	}
+	return response, nil
 }
 
 // otxPassiveDNS is the subset of the AlienVault OTX passive-DNS response we use.
